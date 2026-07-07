@@ -59,10 +59,18 @@ const NAV_LINKS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const user     = getUser();
 
+  // Read user/workspace from localStorage only after mount — reading it
+  // synchronously during render causes a server/client hydration mismatch,
+  // since localStorage doesn't exist on the server.
+  const [user, setUser]             = useState<ReturnType<typeof getUser>>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWsId, setActiveWsId] = useState<number>(getWorkspaceId());
+  const [activeWsId, setActiveWsId] = useState<number>(1);
+
+  useEffect(() => {
+    setUser(getUser());
+    setActiveWsId(getWorkspaceId());
+  }, []);
 
   useEffect(() => {
     apiFetch("/api/workspaces")

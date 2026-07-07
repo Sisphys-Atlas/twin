@@ -96,9 +96,13 @@ function formatChatAsTxt(chatName, messages) {
     const sender = msg.fromMe
       ? 'Me'
       : (msg.author ? msg.author.replace(/@.*$/, '') : chatName);
-    if (['ptt', 'audio'].includes(msg.type))        lines.push(`${ts} - ${sender}: <Voice note omitted>`);
-    else if (['image','video'].includes(msg.type))  lines.push(`${ts} - ${sender}: <Media omitted>`);
-    else if (msg.body && msg.body.trim())            lines.push(`${ts} - ${sender}: ${msg.body.trim()}`);
+    if (['ptt', 'audio'].includes(msg.type))              lines.push(`${ts} - ${sender}: <Voice note omitted>`);
+    else if (['image','video'].includes(msg.type))        lines.push(`${ts} - ${sender}: <Media omitted>`);
+    else if (msg.type === 'sticker')                      lines.push(`${ts} - ${sender}: sticker omitted`);
+    else if (msg.type === 'document')                     lines.push(`${ts} - ${sender}: document omitted`);
+    else if (msg.type === 'location')                     lines.push(`${ts} - ${sender}: <Location omitted>`);
+    else if (['vcard','multi_vcard'].includes(msg.type))  lines.push(`${ts} - ${sender}: Contact card omitted`);
+    else if (msg.body && msg.body.trim())                 lines.push(`${ts} - ${sender}: ${msg.body.trim()}`);
   }
   return lines.join('\n');
 }
@@ -182,11 +186,60 @@ async function runDemoSync() {
   syncState.current     = null;
   syncState.finishedAt  = new Date().toISOString();
   syncLog(`Done — ${ALL_CONTACTS.length} contacts imported · inbox ready with ${ACTIVE.length} active conversations`);
+
+  // Ask the backend to generate real AI drafts for any active contact that
+  // needs a reply and doesn't already have a scripted draftReply above.
+  // This mirrors the real client.on('message', ...) inbound flow so demo
+  // mode exercises the actual Gemini draft pipeline instead of static text.
+  for (const contact of ACTIVE) {
+    const conv = conversations.get(contact.phone);
+    if (!conv || conv.status !== 'needs_reply' || conv.draftReply) continue;
+
+    const lastCustomerMsg = [...conv.messages].reverse().find(m => m.role === 'customer');
+    if (!lastCustomerMsg) continue;
+
+    syncLog(`${contact.name} — requesting AI draft…`);
+    notifyBackend('inbound', {
+      phone:       contact.phone,
+      name:        contact.name,
+      body:        lastCustomerMsg.content,
+      timestamp:   Math.floor(new Date(lastCustomerMsg.timestamp).getTime() / 1000),
+      history:     conv.messages.slice(-20),
+      bridge_port: Number(PORT),
+    });
+  }
 }
 
-// ── Sync job — uploads all chat history to the KB ─────────────────────────────
+// Convert a whatsapp-web.js Message into a plain structured entry for the
+// backend's JSON import endpoint. Non-text messages get a short, plain
+// placeholder (e.g. "audio", "image", "sticker") instead of a formatted
+// string — simpler, and the backend stores message_type separately anyway.
+function toStructuredEntry(msg, chatName) {
+  if (!msg.timestamp) return null;
+  const sender = msg.fromMe
+    ? 'Me'
+    : (msg.author ? msg.author.replace(/@.*$/, '') : chatName);
 
-async function runSync(category = 'customer') {
+  let body = null;
+  let type = 'text';
+
+  if (['ptt', 'audio'].includes(msg.type))            { body = 'audio';   type = 'voice'; }
+  else if (msg.type === 'image')                      { body = 'image';   type = 'image'; }
+  else if (msg.type === 'video')                       { body = 'video';   type = 'video'; }
+  else if (msg.type === 'sticker')                     { body = 'sticker'; type = 'sticker'; }
+  else if (msg.type === 'document')                    { body = 'document';type = 'document'; }
+  else if (msg.type === 'location')                    { body = 'location';type = 'media'; }
+  else if (['vcard','multi_vcard'].includes(msg.type)) { body = 'contact'; type = 'media'; }
+  else if (msg.body && msg.body.trim())                { body = msg.body.trim(); type = 'text'; }
+
+  if (body === null) return null; // unrecognized/system-only message — skip
+
+  return { timestamp: msg.timestamp, sender, body, message_type: type };
+}
+
+// ── Sync job — uploads chat history to the KB ──────────────────────────────
+
+async function runSync(category = 'customer', selectedPhones = null) {
   if (syncState.running) return;
   if (!isConnected)      throw new Error('Not connected to WhatsApp');
 
@@ -203,9 +256,15 @@ async function runSync(category = 'customer') {
     workspaceId = d.id;
   } catch { syncLog('Could not fetch workspace id — using 1'); }
 
-  const chats = await client.getChats();
+  let chats = await client.getChats();
+  if (Array.isArray(selectedPhones) && selectedPhones.length > 0) {
+    const wanted = new Set(selectedPhones);
+    chats = chats.filter(c => wanted.has(c.id.user));
+    syncLog(`Importing ${chats.length} selected chat(s) of ${selectedPhones.length} requested…`);
+  } else {
+    syncLog(`Found ${chats.length} chats — starting upload…`);
+  }
   syncState.total = chats.length;
-  syncLog(`Found ${chats.length} chats — starting upload…`);
 
   for (const chat of chats) {
     const name  = chat.name || chat.id.user;
@@ -222,29 +281,53 @@ async function runSync(category = 'customer') {
     }
 
     try {
-      const messages = await chat.fetchMessages({ limit: 50 });
+      const rawMessages = await chat.fetchMessages({ limit: 50 });
 
-      if (messages.length === 0) {
+      if (rawMessages.length === 0) {
         syncLog(`${name} — empty, skipped`);
         syncState.skipped++;
         syncState.done++;
         continue;
       }
 
-      const content  = formatChatAsTxt(name, messages);
-      const safeName = name.replace(/[<>:"/\\|?*]/g, '_');
+      const structured = rawMessages
+        .map(m => toStructuredEntry(m, name))
+        .filter(Boolean);
 
-      // Build multipart form and POST to /api/upload/parse
-      const form = new FormData();
-      form.append('file', Buffer.from(content, 'utf-8'), { filename: `${safeName}.txt`, contentType: 'text/plain' });
-      form.append('category',     category);
-      form.append('workspace_id', String(workspaceId));
+      if (structured.length === 0) {
+        // Messages were fetched but none were recognizable content
+        // (pure notifications/system events) — nothing useful to import.
+        syncLog(`${name} — no usable content, skipped`);
+        syncState.skipped++;
+        syncState.done++;
+        continue;
+      }
 
-      const res = await fetch(`${BACKEND_URL}/api/upload/parse`, { method: 'POST', body: form, headers: { ...form.getHeaders(), 'X-Bridge-Secret': BRIDGE_SECRET } });
+      const res = await fetch(`${BACKEND_URL}/api/upload/import-messages`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Bridge-Secret': BRIDGE_SECRET },
+        body:    JSON.stringify({ chat_name: name, category, workspace_id: workspaceId, messages: structured }),
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const result = await res.json();
-      syncLog(`${name} — ✓ ${messages.length} msgs → job #${result.job_id}`);
+
+      // Populate the in-memory inbox thread too — upload-messages only feeds
+      // the knowledge base, it doesn't touch conversations, so without this
+      // the contact shows up in the inbox with an empty thread.
+      const conv = conversations.get(phone);
+      if (conv) {
+        conv.messages = structured.slice(-30).map(m => ({
+          role:      m.sender === 'Me' ? 'agent' : 'customer',
+          content:   m.body,
+          timestamp: new Date(m.timestamp * 1000).toISOString(),
+        }));
+        conv.updatedAt = conv.messages.length
+          ? conv.messages[conv.messages.length - 1].timestamp
+          : conv.updatedAt;
+      }
+
+      syncLog(`${name} — ✓ ${structured.length} msgs → job #${result.job_id}`);
       syncState.done++;
     } catch (e) {
       syncLog(`${name} — ✗ ${e.message}`);
@@ -293,7 +376,7 @@ async function sendMessage(phone, message) {
 // ── WhatsApp client ────────────────────────────────────────────────────────────
 
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
+  authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth', clientId: `port-${PORT}` }),
   puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
 });
 
@@ -388,12 +471,22 @@ app.get('/conversations', (req, res) => {
   res.json(list);
 });
 
+// Single conversation — used by the backend's regenerate-draft flow
+app.get('/conversations/:phone', (req, res) => {
+  const conv = conversations.get(req.params.phone);
+  if (!conv) return res.status(404).json({ error: 'not found' });
+  res.json(conv);
+});
+
 // FastAPI sets draft reply after agent generates it
 app.post('/conversations/:phone/draft', (req, res) => {
   const conv = conversations.get(req.params.phone);
   if (!conv) return res.status(404).json({ error: 'not found' });
   conv.draftReply = req.body.reply;
-  conv.status     = 'draft_ready';
+  // Clearing the draft (reply: null) — e.g. Discard, or before regenerating —
+  // should put the conversation back in "needs_reply", not leave it stuck as
+  // "draft_ready" with no draft to show.
+  conv.status     = req.body.reply ? 'draft_ready' : 'needs_reply';
   conv.updatedAt  = new Date().toISOString();
   res.json({ ok: true });
 });
@@ -509,11 +602,32 @@ app.get('/sync/status', (req, res) => {
   res.json(syncState);
 });
 
+// Lightweight chat listing — used by the frontend to let the owner pick
+// which contacts to import, without fetching full message history for each.
+app.get('/sync/chats', async (req, res) => {
+  if (!isConnected) return res.status(503).json({ error: 'Not connected to WhatsApp' });
+  try {
+    const chats = await client.getChats();
+    const list = chats.map(c => ({
+      phone:            c.id.user,
+      name:             c.name || c.id.user,
+      isGroup:          !!c.isGroup,
+      lastMessage:      c.lastMessage ? c.lastMessage.body : null,
+      lastMessageAt:    c.timestamp ? new Date(c.timestamp * 1000).toISOString() : null,
+      unreadCount:      c.unreadCount || 0,
+    })).sort((a, b) => (b.lastMessageAt || '').localeCompare(a.lastMessageAt || ''));
+    res.json(list);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/sync/start', async (req, res) => {
   if (syncState.running) return res.status(409).json({ error: 'Sync already running' });
   if (!isConnected)      return res.status(503).json({ error: 'Not connected to WhatsApp' });
   const category = req.body.category || 'customer';
-  runSync(category).catch(e => { syncState.running = false; syncLog(`Fatal: ${e.message}`); });
+  const phones   = Array.isArray(req.body.phones) ? req.body.phones : null;
+  runSync(category, phones).catch(e => { syncState.running = false; syncLog(`Fatal: ${e.message}`); });
   res.json({ ok: true, message: 'Sync started' });
 });
 

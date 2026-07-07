@@ -307,3 +307,59 @@ def parse(text: str) -> ParseResult:
         result.date_to = real[-1].timestamp
 
     return result
+
+
+def from_structured(messages: list[dict]) -> ParseResult:
+    """Build a ParseResult directly from structured message dicts, bypassing
+    the text-export regex parser entirely. Used by the WhatsApp bridge, which
+    already has each message as a discrete object (timestamp, sender, body,
+    type) — reconstructing a WhatsApp-export .txt file and re-parsing it with
+    regex is a lossy, fragile round trip and unnecessary when the caller
+    already has structured data.
+
+    Each dict may contain:
+      timestamp: int (unix seconds) — required
+      sender: str | None — None means a system message
+      body: str — required (may be a short placeholder like "audio", "sticker")
+      message_type: str — defaults to "text"
+    """
+    result = ParseResult()
+    result.format_detected = "structured"
+    result.total_lines = len(messages)
+
+    participants: set[str] = set()
+    for pos, m in enumerate(messages):
+        ts_raw = m.get("timestamp")
+        if ts_raw is None:
+            result.parse_errors += 1
+            continue
+        try:
+            ts = datetime.fromtimestamp(int(ts_raw))
+        except (TypeError, ValueError, OSError):
+            result.parse_errors += 1
+            continue
+
+        sender = m.get("sender") or None
+        body = (m.get("body") or "").strip()
+        msg_type = m.get("message_type") or ("system" if sender is None else "text")
+
+        result.messages.append(ParsedMessage(
+            timestamp=ts,
+            sender=sender,
+            body=body,
+            message_type=msg_type,
+            media_filename=m.get("media_filename"),
+            position=pos,
+        ))
+        if sender:
+            participants.add(sender)
+
+    _assign_bursts(result.messages)
+
+    result.participants = sorted(participants)
+    real = [m for m in result.messages if m.sender is not None]
+    if real:
+        result.date_from = real[0].timestamp
+        result.date_to = real[-1].timestamp
+
+    return result

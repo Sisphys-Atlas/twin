@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -302,6 +302,44 @@ async def whatsapp_reject(
     return await _bridge_post(f"conversations/{phone}/draft", {"reply": None}, bridge_url)
 
 
+@router.post("/whatsapp/regenerate/{phone}")
+async def whatsapp_regenerate(
+    phone: str,
+    bg: BackgroundTasks,
+    request: Request,
+    _: User = Depends(require_assistant),
+    bridge_url: str = Depends(get_bridge_url),
+):
+    """Discard the current draft (if any) and ask the AI to write a new one
+    from the existing conversation history — used by the Discard/Regenerate
+    flow in the inbox when there's no new incoming message to react to."""
+    conv = await _bridge_get(f"conversations/{phone}", bridge_url)
+    if not conv or not conv.get("messages"):
+        raise HTTPException(404, "Conversation not found or has no messages")
+
+    last_customer_msg = next(
+        (m for m in reversed(conv["messages"]) if m.get("role") == "customer"), None
+    )
+    if not last_customer_msg:
+        raise HTTPException(400, "No customer message to reply to")
+
+    try:
+        ws_id = int(request.headers.get("X-Workspace-ID", "1"))
+    except ValueError:
+        ws_id = 1
+
+    # Clear the old draft immediately so the frontend shows "Generating…"
+    await _bridge_post(f"conversations/{phone}/draft", {"reply": None}, bridge_url)
+
+    timestamp = int(datetime.fromisoformat(last_customer_msg["timestamp"]).timestamp())
+    bg.add_task(
+        _generate_and_push_draft,
+        phone, conv.get("name", phone), last_customer_msg["content"], timestamp,
+        conv["messages"][-20:], ws_id, bridge_url,
+    )
+    return {"ok": True}
+
+
 @router.post("/whatsapp/toggle/{phone}")
 async def whatsapp_toggle_twin(
     phone: str,
@@ -315,6 +353,7 @@ async def whatsapp_toggle_twin(
 
 class SyncRequest(BaseModel):
     category: str = "customer"
+    phones: list[str] | None = None  # if set, only import these contacts
 
 
 @router.get("/whatsapp/sync/status")
@@ -326,13 +365,31 @@ async def whatsapp_sync_status(
     return data if data is not None else {"running": False, "error": "Bridge not running"}
 
 
+@router.get("/whatsapp/sync/chats")
+async def whatsapp_sync_chats(
+    _: User = Depends(get_current_user),
+    bridge_url: str = Depends(get_bridge_url),
+):
+    """List available WhatsApp chats (lightweight, no message history) so the
+    owner can pick which contacts to import before starting a sync."""
+    data = await _bridge_get("sync/chats", bridge_url)
+    if data is None:
+        raise HTTPException(503, "Bridge not running")
+    if isinstance(data, dict) and "error" in data:
+        raise HTTPException(400, data["error"])
+    return data
+
+
 @router.post("/whatsapp/sync/start")
 async def whatsapp_sync_start(
     req: SyncRequest,
     _: User = Depends(require_owner),
     bridge_url: str = Depends(get_bridge_url),
 ):
-    return await _bridge_post("sync/start", {"category": req.category}, bridge_url)
+    body = {"category": req.category}
+    if req.phones:
+        body["phones"] = req.phones
+    return await _bridge_post("sync/start", body, bridge_url)
 
 
 # ── Demo mode ──────────────────────────────────────────────────────────────────

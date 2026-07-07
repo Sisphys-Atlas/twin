@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -34,8 +35,13 @@ def _detect_lang(text: str) -> str | None:
         return None
 
 
-def _process_chat(chat_id: int, file_path: str, workspace_id: int | None) -> None:
-    from app.parsing.whatsapp_parser import parse
+def _process_chat(
+    chat_id: int,
+    file_path: str | None,
+    workspace_id: int | None,
+    structured_messages: list[dict] | None = None,
+) -> None:
+    from app.parsing.whatsapp_parser import parse, from_structured
 
     db = SessionLocal()
     try:
@@ -45,8 +51,13 @@ def _process_chat(chat_id: int, file_path: str, workspace_id: int | None) -> Non
         chat.status = "parsing"
         db.commit()
 
-        text = Path(file_path).read_text(encoding="utf-8-sig")
-        result = parse(text)
+        if structured_messages is not None:
+            # Caller (the WhatsApp bridge) already has structured message
+            # data — skip the text-export regex parser entirely.
+            result = from_structured(structured_messages)
+        else:
+            text = Path(file_path).read_text(encoding="utf-8-sig")
+            result = parse(text)
 
         for msg in result.messages:
             db.add(Message(
@@ -146,6 +157,70 @@ def _process_chat(chat_id: int, file_path: str, workspace_id: int | None) -> Non
             pass
     finally:
         db.close()
+
+
+class StructuredMessageIn(BaseModel):
+    timestamp: int
+    sender: str | None = None
+    body: str = ""
+    message_type: str = "text"
+
+
+class ImportMessagesRequest(BaseModel):
+    chat_name: str
+    workspace_id: int | None = None
+    category: str = "other"
+    messages: list[StructuredMessageIn] = []
+
+
+@router.post("/upload/import-messages")
+async def import_messages(
+    req: ImportMessagesRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _: None = Depends(_bridge_or_user),
+):
+    """Structured equivalent of /upload/parse — used by the WhatsApp bridge,
+    which already has each message as a discrete object. Avoids the fragile
+    text-export round trip (reconstruct .txt → re-parse with regex)."""
+    category = req.category if req.category in VALID_CATEGORIES else "other"
+
+    if not req.messages:
+        raise HTTPException(status_code=422, detail="No messages provided.")
+
+    original_filename = f"{req.chat_name}.txt"
+
+    # Delete any existing record for this chat so re-syncs replace instead of duplicate
+    if req.workspace_id:
+        old = db.query(Chat).filter(
+            Chat.workspace_id == req.workspace_id,
+            Chat.original_filename == original_filename,
+        ).first()
+        if old:
+            db.delete(old)
+            db.commit()
+
+    chat = Chat(
+        filename=original_filename,
+        original_filename=original_filename,
+        workspace_id=req.workspace_id,
+        category=category,
+        status="pending",
+    )
+    db.add(chat)
+    db.commit()
+    db.refresh(chat)
+
+    structured = [m.model_dump() for m in req.messages]
+    background_tasks.add_task(_process_chat, chat.id, None, req.workspace_id, structured)
+
+    return {
+        "job_id": chat.id,
+        "filename": original_filename,
+        "category": category,
+        "workspace_id": req.workspace_id,
+        "message_count": len(req.messages),
+    }
 
 
 @router.post("/upload/parse")

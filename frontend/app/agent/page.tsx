@@ -198,12 +198,17 @@ export default function AgentPage() {
   const [workspaceId,    setWorkspaceId]    = useState<number>(1);
   const [showQR,         setShowQR]         = useState(false);
   const [showSync,       setShowSync]       = useState(false);
+  const [syncChats,        setSyncChats]        = useState<{ phone: string; name: string; isGroup: boolean; lastMessage: string | null }[] | null>(null);
+  const [syncChatsLoading, setSyncChatsLoading]  = useState(false);
+  const [selectedPhones,   setSelectedPhones]    = useState<Set<string>>(new Set());
+  const [chatSearch,       setChatSearch]        = useState("");
   const [showSettings,   setShowSettings]   = useState(false);
   const [syncState,      setSyncState]      = useState<SyncState | null>(null);
   const [syncCategory,   setSyncCategory]   = useState("customer");
   const [styleProfile,   setStyleProfile]   = useState<StyleProfile | null>(null);
   const [learningStyle,  setLearningStyle]  = useState(false);
   const [togglingTwin,   setTogglingTwin]   = useState<Set<string>>(new Set());
+  const [regenerating,   setRegenerating]   = useState<Set<string>>(new Set());
   const [editingPreview, setEditingPreview] = useState<Record<number, string>>({});
   const [editingDraft,   setEditingDraft]   = useState<Record<string, string>>({});
   const [signature,      setSignature]      = useState("");
@@ -325,11 +330,39 @@ export default function AgentPage() {
 
   // ── Sync ──────────────────────────────────────────────────────────────────────
 
+  async function loadSyncChats() {
+    setSyncChatsLoading(true);
+    try {
+      const r = await apiFetch("/api/whatsapp/sync/chats");
+      if (r.ok) {
+        const data = await r.json();
+        setSyncChats(data);
+        setSelectedPhones(new Set(data.map((c: { phone: string }) => c.phone))); // default: all selected
+      } else {
+        setSyncChats([]);
+      }
+    } catch { setSyncChats([]); }
+    finally { setSyncChatsLoading(false); }
+  }
+
+  function toggleChatSelected(phone: string) {
+    setSelectedPhones(prev => {
+      const n = new Set(prev);
+      if (n.has(phone)) n.delete(phone); else n.add(phone);
+      return n;
+    });
+  }
+
   async function startSync() {
+    const allSelected = syncChats != null && selectedPhones.size === syncChats.length;
     await apiFetch("/api/whatsapp/sync/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category: syncCategory }),
+      body: JSON.stringify({
+        category: syncCategory,
+        // Omit phones entirely when everything is selected (or list hasn't loaded) — imports all chats.
+        phones: (syncChats && !allSelected) ? Array.from(selectedPhones) : undefined,
+      }),
     });
     setSyncState(s => s ? { ...s, running: true } : { running: true, total: 0, done: 0, failed: 0, skipped: 0, current: null, log: [], finishedAt: null });
     if (syncPollRef.current) clearInterval(syncPollRef.current);
@@ -453,6 +486,21 @@ export default function AgentPage() {
     await pollConversations();
   }
 
+  async function regenerateDraft(phone: string) {
+    if (regenerating.has(phone)) return;
+    setRegenerating(prev => new Set(prev).add(phone));
+    try {
+      await apiFetch(`/api/whatsapp/regenerate/${phone}`, { method: "POST" });
+      // Draft is generated in the background — poll a few times to pick it up.
+      for (let i = 0; i < 8; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        await pollConversations();
+      }
+    } finally {
+      setRegenerating(prev => { const n = new Set(prev); n.delete(phone); return n; });
+    }
+  }
+
   // ── Derived state ─────────────────────────────────────────────────────────────
 
   const filteredConvs = conversations.filter(c => {
@@ -516,7 +564,7 @@ export default function AgentPage() {
             )}
 
             {bridgeStatus?.connected && (
-              <button onClick={() => setShowSync(true)} style={{ fontSize: 11, color: "#52525b", background: "none", border: "1px solid #27272a", borderRadius: 6, padding: "3px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+              <button onClick={() => { setShowSync(true); if (!syncState?.running && !syncState?.finishedAt) loadSyncChats(); }} style={{ fontSize: 11, color: "#52525b", background: "none", border: "1px solid #27272a", borderRadius: 6, padding: "3px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
                 onMouseEnter={e => (e.currentTarget.style.color = "#a1a1aa")}
                 onMouseLeave={e => (e.currentTarget.style.color = "#52525b")}
               >
@@ -561,7 +609,7 @@ export default function AgentPage() {
               <p style={{ fontSize: 13, color: "#52525b", marginBottom: 24 }}>Open WhatsApp on your phone and scan the QR code</p>
               {bridgeStatus?.qr ? (
                 <div style={{ display: "inline-block", background: "#fff", borderRadius: 10, padding: 12 }}>
-                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(bridgeStatus.qr)}`} alt="QR" style={{ width: 200, height: 200, display: "block" }} />
+                  <img src={bridgeStatus.qr} alt="QR" style={{ width: 200, height: 200, display: "block" }} />
                 </div>
               ) : (
                 <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -641,7 +689,7 @@ export default function AgentPage() {
         {/* ── Sync Modal ────────────────────────────────────────────────────── */}
         {showSync && (
           <div onClick={() => !syncState?.running && setShowSync(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: "#111113", border: "1px solid #27272a", borderRadius: 16, padding: "28px 32px", width: 440, maxWidth: "90vw" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: "#111113", border: "1px solid #27272a", borderRadius: 16, padding: "28px 32px", width: 480, maxWidth: "90vw" }}>
               <h2 style={{ fontSize: 17, fontWeight: 600, color: "#fafaf9", marginBottom: 4 }}>Import chat history</h2>
               <p style={{ fontSize: 13, color: "#52525b", marginBottom: 20 }}>Fetches all WhatsApp conversations and indexes them into the knowledge base.</p>
 
@@ -657,8 +705,59 @@ export default function AgentPage() {
                       ))}
                     </div>
                   </div>
-                  <button onClick={startSync} style={{ width: "100%", padding: "11px 0", borderRadius: 10, background: "#22c55e", color: "#000", fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer" }}>
-                    Start import
+
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: "#3f3f46", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
+                        Contacts {syncChats ? `(${selectedPhones.size}/${syncChats.length} selected)` : ""}
+                      </div>
+                      {syncChats && syncChats.length > 0 && (
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={() => setSelectedPhones(new Set(syncChats.map(c => c.phone)))} style={{ fontSize: 10, color: "#52525b", background: "none", border: "none", cursor: "pointer" }}>All</button>
+                          <button onClick={() => setSelectedPhones(new Set())} style={{ fontSize: 10, color: "#52525b", background: "none", border: "none", cursor: "pointer" }}>None</button>
+                        </div>
+                      )}
+                    </div>
+
+                    {syncChatsLoading ? (
+                      <div style={{ padding: "20px 0", textAlign: "center" }}>
+                        <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid #27272a", borderTopColor: "#22c55e", margin: "0 auto" }} className="kb-spin" />
+                      </div>
+                    ) : syncChats && syncChats.length > 0 ? (
+                      <>
+                        <input
+                          value={chatSearch}
+                          onChange={e => setChatSearch(e.target.value)}
+                          placeholder="Search contacts…"
+                          style={{ width: "100%", boxSizing: "border-box", fontSize: 12, color: "#fafaf9", background: "#09090b", border: "1px solid #27272a", borderRadius: 7, padding: "6px 10px", marginBottom: 8, outline: "none" }}
+                        />
+                        <div style={{ background: "#09090b", border: "1px solid #1f1f23", borderRadius: 8, maxHeight: 220, overflowY: "auto" }}>
+                          {syncChats
+                            .filter(c => c.name.toLowerCase().includes(chatSearch.toLowerCase()))
+                            .map(c => (
+                              <label key={c.phone} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: "1px solid #18181b", cursor: "pointer" }}>
+                                <input type="checkbox" checked={selectedPhones.has(c.phone)} onChange={() => toggleChatSelected(c.phone)} style={{ accentColor: "#22c55e", cursor: "pointer" }} />
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ fontSize: 12, color: "#e4e4e7", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {c.name} {c.isGroup && <span style={{ color: "#3f3f46", fontSize: 10 }}>· group</span>}
+                                  </div>
+                                  {c.lastMessage && (
+                                    <div style={{ fontSize: 10, color: "#3f3f46", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.lastMessage}</div>
+                                  )}
+                                </div>
+                              </label>
+                            ))}
+                        </div>
+                      </>
+                    ) : (
+                      <p style={{ fontSize: 11, color: "#3f3f46" }}>No chats found — will import everything available.</p>
+                    )}
+                  </div>
+
+                  <button onClick={startSync} disabled={syncChats != null && syncChats.length > 0 && selectedPhones.size === 0} style={{ width: "100%", padding: "11px 0", borderRadius: 10, background: (syncChats && syncChats.length > 0 && selectedPhones.size === 0) ? "#27272a" : "#22c55e", color: (syncChats && syncChats.length > 0 && selectedPhones.size === 0) ? "#52525b" : "#000", fontSize: 14, fontWeight: 600, border: "none", cursor: (syncChats && syncChats.length > 0 && selectedPhones.size === 0) ? "not-allowed" : "pointer" }}>
+                    {syncChats && selectedPhones.size > 0 && selectedPhones.size < syncChats.length
+                      ? `Import ${selectedPhones.size} selected`
+                      : "Start import"}
                   </button>
                 </>
               )}
@@ -696,7 +795,7 @@ export default function AgentPage() {
                     ))}
                   </div>
                   <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                    <button onClick={() => { setSyncState(null); setShowSync(false); loadOverview(); }} style={{ flex: 1, padding: "9px 0", borderRadius: 8, background: "#22c55e", color: "#000", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>Done</button>
+                    <button onClick={() => { setSyncState(null); setShowSync(false); setSyncChats(null); setChatSearch(""); loadOverview(); }} style={{ flex: 1, padding: "9px 0", borderRadius: 8, background: "#22c55e", color: "#000", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>Done</button>
                     {bridgeStatus?.connected && (
                       <button onClick={startSync} style={{ padding: "9px 18px", borderRadius: 8, background: "transparent", color: "#71717a", fontSize: 13, border: "1px solid #27272a", cursor: "pointer" }}>Re-sync</button>
                     )}
@@ -705,7 +804,7 @@ export default function AgentPage() {
               )}
 
               {!syncState?.running && (
-                <button onClick={() => setShowSync(false)} style={{ marginTop: 14, fontSize: 12, color: "#3f3f46", background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "center" }}>Cancel</button>
+                <button onClick={() => { setShowSync(false); setSyncChats(null); setChatSearch(""); }} style={{ marginTop: 14, fontSize: 12, color: "#3f3f46", background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "center" }}>Cancel</button>
               )}
             </div>
           </div>
@@ -884,16 +983,28 @@ export default function AgentPage() {
                         Cancel
                       </button>
                     )}
+                    <button onClick={() => regenerateDraft(selectedConv.id)} disabled={regenerating.has(selectedConv.id)} style={{ padding: "7px 10px", borderRadius: 7, background: "transparent", color: "#71717a", fontSize: 11, border: "1px solid #27272a", cursor: regenerating.has(selectedConv.id) ? "not-allowed" : "pointer", opacity: regenerating.has(selectedConv.id) ? 0.5 : 1 }}>
+                      {regenerating.has(selectedConv.id) ? "Regenerating…" : "Regenerate"}
+                    </button>
                     <button onClick={() => rejectDraft(selectedConv.id)} style={{ padding: "7px 10px", borderRadius: 7, background: "transparent", color: "#71717a", fontSize: 11, border: "1px solid #27272a", cursor: "pointer" }}>
                       Discard
                     </button>
                   </div>
                 </div>
               ) : selectedConv.status === "needs_reply" ? (
-                <div style={{ padding: "10px 12px", borderTop: "1px solid #1f1f23", display: "flex", alignItems: "center", gap: 8, background: "#111113" }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid #27272a", borderTopColor: "#22c55e" }} className="kb-spin" />
-                  <span style={{ fontSize: 11, color: "#3f3f46" }}>Generating draft…</span>
-                </div>
+                regenerating.has(selectedConv.id) ? (
+                  <div style={{ padding: "10px 12px", borderTop: "1px solid #1f1f23", display: "flex", alignItems: "center", gap: 8, background: "#111113" }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid #27272a", borderTopColor: "#22c55e" }} className="kb-spin" />
+                    <span style={{ fontSize: 11, color: "#3f3f46" }}>Generating draft…</span>
+                  </div>
+                ) : (
+                  <div style={{ padding: "10px 12px", borderTop: "1px solid #1f1f23", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "#111113" }}>
+                    <span style={{ fontSize: 11, color: "#3f3f46" }}>No draft yet</span>
+                    <button onClick={() => regenerateDraft(selectedConv.id)} style={{ padding: "6px 12px", borderRadius: 7, background: "transparent", color: "#22c55e", fontSize: 11, fontWeight: 600, border: "1px solid rgba(34,197,94,0.3)", cursor: "pointer" }}>
+                      Generate draft
+                    </button>
+                  </div>
+                )
               ) : null}
             </div>
           )}
