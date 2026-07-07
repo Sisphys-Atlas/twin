@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Env — never commit real secrets
+.env
+*.env.local
+backend/.env
+bridge/.env
+
+# WhatsApp session data (contains auth tokens)
+.wwebjs_auth/
+*.session
+*.session-journal
+*.db
+
+# Storage (user uploads — never commit)
+storage/
+!storage/.gitkeep
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.npm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml

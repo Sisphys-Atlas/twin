@@ -1,0 +1,370 @@
+================================================================================
+  TWIN — AI WHATSAPP DIGITAL TWIN
+  Full Project Description
+================================================================================
+
+WHAT IS TWIN?
+--------------------------------------------------------------------------------
+Twin is an AI system that learns how a business owner communicates on WhatsApp
+and acts as their digital twin. It reads incoming customer messages, generates
+draft replies written in the owner's exact style and voice, and waits for
+approval before sending anything. The owner always has full control — the AI
+never sends without explicit confirmation.
+
+The system also serves as an intelligent co-pilot: the owner can query their
+entire conversation history in natural language, ask for analytics, and instruct
+the AI to compose and send messages to any contact.
+
+
+THE CORE IDEA
+--------------------------------------------------------------------------------
+Every business owner has a communication style — the words they use, how formal
+or casual they are with different people, how they handle complaints versus
+orders, how they close deals. Twin captures that style from real past
+conversations, then replicates it for new messages.
+
+This is not a generic chatbot. The AI is trained on the owner's own messages,
+so replies sound like the owner wrote them — not a robot.
+
+
+================================================================================
+  SYSTEM ARCHITECTURE
+================================================================================
+
+STACK
+--------------------------------------------------------------------------------
+  Backend     FastAPI (Python) — port 8000
+  Frontend    Next.js 14 App Router — port 3000
+  Bridge      Node.js persistent service — port 3001
+  Database    PostgreSQL
+  AI Model    Google Gemini (gemini-2.5-flash-lite + embedding-001)
+  Embeddings  text-embedding-001 via Google AI API
+  Auth        None (single-owner local deployment)
+
+THREE-LAYER ARCHITECTURE
+--------------------------------------------------------------------------------
+  1. Bridge (Node.js / whatsapp-web.js)
+     Connects to WhatsApp Web via QR scan. Handles all real-time messaging:
+     receives inbound messages, forwards them to the backend, and sends approved
+     replies. Manages per-contact conversation state in memory.
+
+  2. Backend (FastAPI / Python)
+     Processes messages, runs AI generation, manages the knowledge base,
+     handles analytics, and exposes APIs to the frontend. Runs all background
+     tasks (embedding, indexing, style learning).
+
+  3. Frontend (Next.js)
+     Two main pages: Agent (inbox + thread + owner chat) and Dashboard
+     (analytics + indexed chat grid). Real-time polling for inbox updates.
+
+
+================================================================================
+  CURRENT FEATURES
+================================================================================
+
+WHATSAPP CONNECTION
+--------------------------------------------------------------------------------
+- QR code scan links the owner's WhatsApp account to the bridge
+- Persistent connection (survives page refresh, no re-scan needed)
+- Status displayed in real-time in the connection bar
+- Daily send limit: 40 messages with randomized delays (5-10s between sends)
+  to avoid WhatsApp rate-limiting or bans
+
+CHAT HISTORY IMPORT (SYNC)
+--------------------------------------------------------------------------------
+- One-click import of all WhatsApp conversations into the knowledge base
+- Runs in background — live progress bar with per-contact log lines
+- Shows: contact name, message count, success/failure per contact
+- Handles WhatsApp's LID (Linked Device ID) system for modern accounts
+- Deduplication: re-syncing replaces existing records, no accumulation
+- Empty chats and group chats are skipped automatically
+- Default category assigned to all imported chats (customer / team / supplier)
+
+KNOWLEDGE BASE
+--------------------------------------------------------------------------------
+- All conversations stored in PostgreSQL with full-text and vector search
+- Each message is embedded using Google's text-embedding-001 model
+- Hybrid search: combines vector cosine similarity with PostgreSQL FTS,
+  merged and re-scored for best results
+- Live indexing: every new inbound message and approved reply is immediately
+  added to the KB — the database is always current
+
+DIGITAL TWIN — DRAFT GENERATION
+--------------------------------------------------------------------------------
+- When a customer sends a message, the bridge notifies the backend
+- The backend generates a draft reply using two layers of style:
+
+  Layer 1 — Global style profile
+  Learned from all "Me" messages across every conversation. Captures overall
+  tone, vocabulary, sentence length, formality, language switching patterns.
+
+  Layer 2 — Per-contact style
+  Learned from "Me" messages in that specific contact's chat history.
+  Recognises that the owner writes differently to a supplier vs a customer,
+  formally vs casually, in Arabic vs French depending on the contact.
+
+- The draft appears in the middle pane of the Agent page
+- Owner can read it, edit it, then approve or discard
+- Nothing is ever sent without owner confirmation
+
+TWIN ON/OFF PER CONTACT
+--------------------------------------------------------------------------------
+- Each contact has an independent twin toggle (visual on/off switch)
+- When OFF: inbound messages appear in inbox but no draft is generated
+- When ON: draft is generated automatically on every new message
+- Toggle state persists in the bridge's memory for the session
+
+OWNER CO-PILOT (AGENT CHAT)
+--------------------------------------------------------------------------------
+The right pane of the Agent page is a chat interface where the owner can:
+
+  Query conversations:
+  - "What was my last conversation with Ahmed Benali about?"
+  - "What did Youssef order last month?"
+  - "Did any customer complain about delivery?"
+  - "What did customers say about pricing?"
+  - Gap-based session detection (12h threshold) identifies full conversation
+    sessions and returns complete context, not just the last message
+
+  Get analytics:
+  - "Give me an overview of all chats"
+  - "Who are our most active customers?"
+  - "What are the most common request types?"
+  - Returns visual cards (stats grid, ranked lists, bar charts)
+
+  Send messages:
+  - "Send Ahmed Benali that his order is ready for pickup"
+  - "Tell Fatima the refund was processed"
+  - AI composes the message in the owner's style, shows a SEND PREVIEW card
+  - Owner can edit the composed message before confirming
+  - Confirm & Send triggers the bridge to send via WhatsApp
+
+  Streaming responses:
+  - All agent answers stream token-by-token (SSE) for instant feedback
+  - No waiting for the full response to generate
+
+CONTACT RESOLUTION
+--------------------------------------------------------------------------------
+- Owner can refer to contacts by name ("Send Ahmed Benali that...")
+- System resolves name to phone number using score-based matching:
+  exact match (score 3) > all words match (score 2) > partial (score 1)
+- Names are normalized (punctuation stripped, case-insensitive) so
+  "Mr.Fahad", "Mr. Fahad", and "mr fahad" all resolve to the same contact
+- Requires score >= 2 to avoid wrong matches
+- Falls back to phone number lookup in WhatsApp contacts if not in memory
+
+STYLE LEARNING
+--------------------------------------------------------------------------------
+- Owner clicks "Learn my style" (in Settings modal)
+- System scans all "Me" messages in the KB (up to 500 samples)
+- Gemini generates a detailed style profile: tone, vocabulary, patterns,
+  language use, formality levels, greeting/closing habits
+- Profile is stored as a JSON file and reloaded on every draft generation
+- Owner can re-learn at any time (e.g. after importing more history)
+
+SIGNATURE
+--------------------------------------------------------------------------------
+- Owner can set a signature appended to every AI-generated message
+- Configured in the Settings modal
+- Example: "– Sent via Twin" or "Best, Karim"
+
+INBOX
+--------------------------------------------------------------------------------
+- Left pane shows all active contacts sorted by last activity
+- Status labels: Needs Reply / Draft Ready / Replied / Active
+- Search box: filter contacts by name in real-time
+- Filter tabs: All / Needs Reply / Draft Ready (with live counts)
+- Visual toggle switch per contact (sliding pill, not text label)
+- Last message preview truncated to one line
+
+CONVERSATION THREAD
+--------------------------------------------------------------------------------
+- Middle pane shows the full message history for selected contact
+- Date separators between messages from different days (Today / Yesterday / date)
+- Customer messages on left (white bubble), agent messages on right (dark)
+- Supports Arabic RTL text detection and automatic direction switching
+- Draft card at bottom with Edit / Approve & Send / Discard actions
+- Edit mode: inline textarea with gold border, cancel or confirm
+
+SETTINGS MODAL
+--------------------------------------------------------------------------------
+- Gear icon in connection bar opens settings
+- Style section: status, sample count, summary, Learn / Re-learn button
+- Signature section: set or edit signature text
+- Keeps the connection bar clean and uncluttered
+
+ANALYTICS — DASHBOARD PAGE
+--------------------------------------------------------------------------------
+- Indexed chats count, total messages, contacts count
+- Activity bar chart: message volume per day (last 30 days)
+- Top contacts: ranked list with relative bar showing message volume
+- Chat grid: all indexed chats with category badge, status, date range,
+  participant names, message count
+- Filter by category (customer / team / supplier / other)
+
+DEMO MODE
+--------------------------------------------------------------------------------
+- "Demo" button in connection bar — works without WhatsApp connected
+- Loads 85 fake contacts through the real upload and embedding pipeline:
+  5 rich active contacts + 80 brief ones for the sync animation
+- Contacts include Moroccan/Arab business names (Arabic + French) and
+  international English-speaking customers (UK, US, Egypt, UAE, Saudi, Germany)
+- Demo conversations cover: bulk orders, delivery complaints, custom orders,
+  wholesale negotiations, diaspora customers, fashion collaborations
+- Sync animation shows realistic progress (350-600ms per contact, ~50 seconds)
+- After sync: 5 contacts appear in inbox with different statuses:
+    Ahmed Benali      — Needs reply (wants to place bulk order of 100 units)
+    Fatima Zahra      — Draft ready (delivery was late and damaged, wants refund)
+    Youssef Kadiri    — Replied (completed fabric supply deal)
+    Nadia Berrada     — Active (custom wedding caftan, measurements Saturday)
+    Mohammed El Alami — Needs reply (asking for address before visiting)
+- KB is fully populated so agent queries return real answers
+- Sends in demo mode are simulated (logged, not actually sent via WhatsApp)
+- Re-running demo clears previous contacts and starts fresh
+
+
+================================================================================
+  FUTURE FEATURES (PLANNED)
+================================================================================
+
+STYLE IMPROVEMENTS
+--------------------------------------------------------------------------------
+- Continuous style learning: profile auto-updates after every approved reply
+  instead of requiring a manual re-learn
+- Tone adjustment slider: owner can shift the AI's tone warmer/colder or
+  more/less formal without re-learning the full profile
+- Style preview: before learning, show the owner a sample of how the AI
+  would reply to a test message
+- Language detection per contact: if a contact always writes in French,
+  the AI defaults to French regardless of the global style
+
+INBOX & CONVERSATIONS
+--------------------------------------------------------------------------------
+- Unread badge: highlight contacts with messages the owner has not seen yet
+- Bulk actions: approve all drafts in one click, or discard all
+- Conversation tags: manually tag contacts (VIP, urgent, wholesale, etc.)
+- Notes per contact: owner can leave private notes visible in the thread
+- Conversation search: search within a specific contact's message history
+- Message scheduling: approve a draft but schedule it to send later
+- Snooze: hide a conversation for X hours, resurface it automatically
+
+AGENT CO-PILOT IMPROVEMENTS
+--------------------------------------------------------------------------------
+- Memory across queries: agent remembers the last 5 questions in the session
+  so the owner can ask follow-up questions without re-stating context
+- Proactive alerts: agent flags important events ("Fatima has been waiting
+  3 days for a refund response")
+- Suggested actions: after showing a conversation, agent suggests "Shall I
+  draft a follow-up?" or "Would you like to mark this as resolved?"
+- Bulk message campaigns: "Send all customers who ordered last month that
+  the new collection is available" — generates personalised messages per contact
+- Export: owner can ask for conversation summaries exported to PDF or CSV
+
+ANALYTICS
+--------------------------------------------------------------------------------
+- Response time tracking: average time between customer message and owner reply
+- Sentiment analysis: flag conversations where customer tone is negative
+- Conversion tracking: tag conversations as leads, and mark when converted
+- Weekly summary report: auto-generated every Monday morning
+- Revenue tracking: manually log order amounts, see revenue per contact
+- Heatmap: which days and hours get the most messages
+
+KNOWLEDGE BASE
+--------------------------------------------------------------------------------
+- Automatic categorisation: AI classifies each contact as customer/supplier/
+  team during sync instead of using a single default category
+- Duplicate detection: flag if the same contact exists under two different
+  names or numbers
+- KB cleanup tool: owner can see and delete old or irrelevant indexed chats
+- Smart chunking: long conversations split into semantic chunks for better
+  retrieval accuracy
+
+MULTI-PLATFORM
+--------------------------------------------------------------------------------
+- Instagram Direct Messages: same twin system for Instagram DMs
+- Telegram: extend bridge to handle Telegram messages
+- Email: index email threads alongside WhatsApp for a unified KB
+
+TEAM & COLLABORATION
+--------------------------------------------------------------------------------
+- Multiple owner profiles: allow a small team (e.g. owner + assistant) to
+  share the inbox with role-based access
+- Assignment: assign conversations to specific team members
+- Internal notes visible to the team but not sent to the customer
+- Audit log: who approved which message and when
+
+AUTOMATION
+--------------------------------------------------------------------------------
+- Auto-responder for FAQ: if a contact asks a question that has been answered
+  5+ times before, auto-send the standard reply (still owner-configurable)
+- Business hours: auto-reply with "out of office" message outside working hours
+- Order status webhook: integrate with an order management system so the AI
+  can look up real order status when customers ask
+- Trigger rules: "If a new contact messages for the first time, always generate
+  a draft welcome message"
+
+INFRASTRUCTURE
+--------------------------------------------------------------------------------
+- Cloud deployment: Docker + VPS setup for running outside of localhost
+- End-to-end encryption for stored messages
+- Automated backups of the PostgreSQL database
+- Multiple workspaces: manage multiple WhatsApp numbers / businesses from
+  one installation
+- Mobile-friendly frontend for approving drafts from a phone browser
+
+
+================================================================================
+  FILES & STRUCTURE
+================================================================================
+
+  whatsapp-kb/
+  ├── bridge/
+  │   ├── index.js          Main bridge — WhatsApp connection + Express API
+  │   └── demo-data.js      85 fake contacts for demo mode
+  ├── backend/
+  │   └── app/
+  │       ├── main.py       FastAPI app entry point
+  │       └── api/
+  │           ├── agent.py      Owner co-pilot + KB query logic
+  │           ├── analytics.py  Overview, activity, top contacts, intents
+  │           ├── chat.py       Chat history retrieval
+  │           ├── contacts.py   Contact management
+  │           ├── search.py     Hybrid search endpoint
+  │           ├── status.py     System status
+  │           ├── style.py      Style profile learn + signature
+  │           ├── upload.py     Chat file parsing + embedding pipeline
+  │           ├── whatsapp.py   Bridge relay + inbound draft generation
+  │           └── workspaces.py Workspace management
+  ├── frontend/
+  │   └── app/
+  │       ├── agent/page.tsx     Main inbox + thread + agent chat
+  │       ├── dashboard/page.tsx Analytics + chat grid
+  │       ├── contacts/page.tsx  Contact list
+  │       └── layout.tsx         Global layout + fonts
+  └── TWIN_PROJECT.txt           This file
+
+
+================================================================================
+  RUNNING THE PROJECT
+================================================================================
+
+  1. Start PostgreSQL and run migrations
+  2. Start backend:    cd backend && uvicorn app.main:app --reload --port 8000
+  3. Start bridge:     cd bridge && npm start
+  4. Start frontend:   cd frontend && npm run dev
+  5. Open:            http://localhost:3000
+
+  For demo (no WhatsApp needed):
+  - Open the Agent page and click "Demo" in the top bar
+  - Watch 85 contacts sync into the KB
+  - Use the agent chat to ask questions about the demo data
+
+
+================================================================================
+  VERSION
+================================================================================
+
+  Current version: 0.5.0
+  Last updated:    June 2026
+
+================================================================================

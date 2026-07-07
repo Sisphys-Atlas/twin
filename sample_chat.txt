@@ -1,0 +1,141 @@
+03/01/2024, 09:00 - Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them.
+03/01/2024, 09:01 - Ahmed: صباح الخير يا جماعة
+03/01/2024, 09:01 - Ahmed: Happy new year! Hope 2024 is a big year for all of us
+03/01/2024, 09:04 - Sara: صباح النور يا أحمد! سنة مبروكة على الجميع
+03/01/2024, 09:05 - Sara: Bonne année à tous!
+03/01/2024, 09:07 - Karim: Bonne année! Let's make it a strong year for Acme Trading
+03/01/2024, 09:09 - Karim: BTW the Q4 final numbers just came in from finance
+03/01/2024, 09:10 - Ahmed: Waiting!
+03/01/2024, 09:11 - Karim: Revenue up 18% vs Q3. Strong close overall
+03/01/2024, 09:12 - Karim: But margins were squeezed on the electronics line — Q4 pricing needs a full review
+03/01/2024, 09:13 - Ahmed: Yes exactly. The Q4 pricing on electronics was too low
+03/01/2024, 09:13 - Ahmed: The supplier raised their rates in October and we didn't adjust our prices fast enough
+03/01/2024, 09:14 - Ahmed: We lost around 4% margin on that line alone
+03/01/2024, 09:15 - Sara: صح، الموردين رفعوا أسعارهم في أكتوبر وما قدرنا نعدل بسرعة كافية
+03/01/2024, 09:16 - Sara: We need a faster repricing process — this can't happen again
+03/01/2024, 09:18 - Karim: Agreed. I'll prepare a revised pricing model for the electronics line by end of next week
+03/01/2024, 09:19 - Ahmed: Please share before you finalize — I need to run it by the Riyadh office first
+03/01/2024, 09:19 - Karim: Will do
+03/01/2024, 09:21 - Sara: Also we need to discuss the Maghreb Supplies contract renewal — it expires end of January
+03/01/2024, 09:22 - Ahmed: Yes let's schedule a call this week. I'll send a calendar invite
+03/01/2024, 09:23 - Karim: Works for me, any day after Tuesday
+03/01/2024, 09:24 - Sara: Same
+08/01/2024, 10:15 - Ahmed: Morning team — quick update on the Tunis shipment
+08/01/2024, 10:16 - Ahmed: PTT-20240108-WA0012.opus (file attached)
+08/01/2024, 10:22 - Sara: Listened. So the container is stuck at the port?
+08/01/2024, 10:23 - Ahmed: Yes, customs clearance issue. The broker says 3–5 business days
+08/01/2024, 10:23 - Ahmed: I already sent them the updated COO certificate this morning
+08/01/2024, 10:25 - Karim: كم قيمة الشحنة؟
+08/01/2024, 10:26 - Ahmed: 87,000 USD. Client already paid 50% deposit in October
+08/01/2024, 10:27 - Karim: OK so we have exposure. Is there a penalty clause for late delivery?
+08/01/2024, 10:28 - Sara: Yes, 0.5% per week after January 15th
+08/01/2024, 10:29 - Ahmed: I'm on it. Will update daily
+08/01/2024, 10:31 - Sara: IMG-20240108-WA0034.jpg (file attached)
+08/01/2024, 10:32 - Sara: That's the customs hold notice — for the file
+08/01/2024, 10:33 - Karim: Received, saved it
+10/01/2024, 14:05 - Ahmed: Good news — shipment cleared customs this morning!
+10/01/2024, 14:05 - Ahmed: Expected delivery to client January 13th. No penalty
+10/01/2024, 14:06 - Sara: الحمدلله! Great news
+10/01/2024, 14:07 - Karim: Excellent. Let's flag this in the weekly report — we need a faster COO process for future shipments
+10/01/2024, 14:08 - Ahmed: 100% agree. I'll raise it with logistics
+15/01/2024, 11:30 - Sara: Payment confirmation from Delta Retail just came in
+15/01/2024, 11:30 - Sara: Invoice-DR-2024-001.pdf (file attached)
+15/01/2024, 11:31 - Sara: They paid the full balance — 43,500 USD. Received this morning
+15/01/2024, 11:32 - Ahmed: ممتاز! Full payment, no deductions?
+15/01/2024, 11:33 - Sara: Full amount, zero deductions. Wire transfer, already confirmed by the bank
+15/01/2024, 11:34 - Karim: Perfect. I'll update the receivables sheet. That clears their October invoice too
+15/01/2024, 11:35 - Ahmed: Great. Sara please send them the official receipt and a thank-you note
+15/01/2024, 11:36 - Sara: Already drafted, will send after lunch
+15/01/2024, 11:37 - Karim: One more thing — the October payment from Gulf Star Trading is still outstanding
+15/01/2024, 11:38 - Karim: 28,000 USD, now 45 days overdue
+15/01/2024, 11:39 - Ahmed: I'll call their finance guy today. This is getting too long
+15/01/2024, 11:40 - Sara: Should I send a formal notice in parallel?
+15/01/2024, 11:41 - Ahmed: Yes please — standard 7-day notice
+22/01/2024, 16:00 - Karim: Maghreb Supplies contract renewal — I've reviewed their proposal
+22/01/2024, 16:01 - Karim: They want a 12% price increase across all categories
+22/01/2024, 16:02 - Ahmed: 12% is too high. Our market can absorb maybe 6–7% max
+22/01/2024, 16:03 - Sara: موافقة مع أحمد — 12% كثير خصوصاً على الإلكترونيات
+22/01/2024, 16:04 - Karim: I suggested we counter at 7% for electronics and 9% for the rest
+22/01/2024, 16:05 - Ahmed: That's reasonable. What was their reaction?
+22/01/2024, 16:06 - Karim: They said they'd come back to us by end of week
+22/01/2024, 16:07 - Ahmed: OK. If they don't move below 10% overall we need to start looking at alternatives
+22/01/2024, 16:08 - Sara: I already have two backup suppliers shortlisted — Gulf Components and Atlas Tech
+22/01/2024, 16:09 - Ahmed: Good thinking Sara. Keep those warm
+22/01/2024, 16:10 - Karim: One more thing on the contract — they want exclusivity for Morocco and Algeria
+22/01/2024, 16:11 - Ahmed: Absolutely not. That's a hard no from me
+22/01/2024, 16:12 - Karim: Agreed. I made that clear in our call
+22/01/2024, 16:13 - Sara: Good. Exclusivity would kill our flexibility in those markets
+25/01/2024, 09:45 - Karim: Update on Maghreb Supplies — they came back
+25/01/2024, 09:46 - Karim: 8% blended rate, no exclusivity clause. Valid for 2 years
+25/01/2024, 09:47 - Ahmed: 8% is within range. What do you both think?
+25/01/2024, 09:48 - Sara: Je pense que c'est acceptable. Better than losing continuity mid-Q1
+25/01/2024, 09:49 - Karim: Same. And 2-year lock-in gives us stability for planning
+25/01/2024, 09:50 - Ahmed: OK let's take it. Karim please prepare the contract and I'll sign off tomorrow
+25/01/2024, 09:51 - Karim: Will have it ready by 5pm today
+02/02/2024, 08:30 - Sara: Big news — Nour Electronics wants to place an order
+02/02/2024, 08:30 - Sara: They're asking for 200 units of the TX-900 and 150 of the TX-800
+02/02/2024, 08:31 - Ahmed: Nour? That's a major account. What's their timeline?
+02/02/2024, 08:32 - Sara: They need delivery by March 10th
+02/02/2024, 08:33 - Ahmed: That's tight but doable if we confirm stock today
+02/02/2024, 08:34 - Karim: Checking inventory now
+02/02/2024, 08:41 - Karim: We have 180 TX-900 in the warehouse. TX-800 we only have 90
+02/02/2024, 08:42 - Karim: We'd need to order 60 more TX-800 from the supplier
+02/02/2024, 08:43 - Ahmed: How long is supplier lead time right now?
+02/02/2024, 08:44 - Sara: PTT-20240202-WA0021.opus (file attached)
+02/02/2024, 08:51 - Ahmed: OK so 10–12 days from the voice note. That still works for March 10th
+02/02/2024, 08:52 - Karim: Confirming the order with Maghreb Supplies now
+02/02/2024, 08:53 - Ahmed: Sara please send Nour a proforma invoice today — quote them our standard commercial terms
+02/02/2024, 08:54 - Sara: On it. What price are we doing for them?
+02/02/2024, 08:55 - Ahmed: Use the updated Q1 pricing sheet. Make sure the electronics prices reflect the new Maghreb rates
+02/02/2024, 08:56 - Sara: Understood
+10/02/2024, 13:20 - Sara: Nour Electronics confirmed — they accepted the proforma
+10/02/2024, 13:21 - Sara: They paid the 30% deposit: 18,600 USD received
+10/02/2024, 13:21 - Sara: Deposit-Nour-2024-007.pdf (file attached)
+10/02/2024, 13:22 - Ahmed: ممتاز! Karim please log it and send Sara the receipt template
+10/02/2024, 13:23 - Karim: Done. Sara check your email
+10/02/2024, 13:24 - Ahmed: Also — what's the status of the Gulf Star October payment? Did they respond?
+10/02/2024, 13:25 - Sara: They replied yesterday — they're asking for 15 more days
+10/02/2024, 13:26 - Ahmed: They've already had 60 days. No more extensions
+10/02/2024, 13:27 - Ahmed: Send them the final notice today — if we don't receive by February 20th we escalate to legal
+10/02/2024, 13:28 - Sara: Understood, sending now
+10/02/2024, 13:29 - Karim: Also flagging — their next order is on hold pending this payment, right?
+10/02/2024, 13:30 - Ahmed: Correct. No new orders from Gulf Star until the October balance is cleared
+20/02/2024, 15:00 - Karim: Gulf Star payment received!
+20/02/2024, 15:00 - Karim: 28,000 USD, full amount. Wire confirmed
+20/02/2024, 15:01 - Ahmed: Finally! Good. Lift the hold on their account
+20/02/2024, 15:02 - Sara: Alhamdulillah. I'll update their file and send the receipt
+20/02/2024, 15:03 - Karim: Total receivables cleared this month: 71,500 USD. Best February in 3 years
+20/02/2024, 15:04 - Ahmed: Excellent work team. Let's keep this momentum into Q1
+05/03/2024, 10:00 - Ahmed: Q1 planning session — I want to cover three things today
+05/03/2024, 10:00 - Ahmed: 1. Nour Electronics delivery status
+05/03/2024, 10:01 - Ahmed: 2. Pipeline review for March
+05/03/2024, 10:01 - Ahmed: 3. Riyadh office meeting prep for next week
+05/03/2024, 10:03 - Sara: Nour delivery: all 200 TX-900 shipped yesterday. The TX-800 batch ships Friday
+05/03/2024, 10:04 - Sara: On track for March 10th delivery
+05/03/2024, 10:05 - Karim: Pipeline: we have 3 solid prospects — Doha Electro, Casablanca Tech, and a new lead from Amman
+05/03/2024, 10:06 - Karim: Combined potential around 420,000 USD for Q1
+05/03/2024, 10:07 - Ahmed: Good. Let's prioritize Doha Electro — they've been in the pipeline the longest
+05/03/2024, 10:08 - Ahmed: What's blocking them?
+05/03/2024, 10:09 - Sara: They want to see our updated product catalog and a revised quote for the TX-950 series
+05/03/2024, 10:10 - Ahmed: I'll record a voice note with the key talking points for the TX-950 pitch
+05/03/2024, 10:10 - Ahmed: PTT-20240305-WA0008.opus (file attached)
+05/03/2024, 10:18 - Sara: Perfect, this is really helpful. I'll use this for the Doha proposal
+05/03/2024, 10:19 - Karim: For Riyadh — the meeting is March 12th, 10am at their HQ
+05/03/2024, 10:20 - Karim: They want to discuss expanding the distribution agreement to cover Kuwait and Bahrain
+05/03/2024, 10:21 - Ahmed: Big opportunity. Sara can you prepare a market brief for Kuwait and Bahrain by Monday?
+05/03/2024, 10:22 - Sara: سأكون جاهزة يوم الاثنين إن شاء الله
+05/03/2024, 10:23 - Ahmed: Karim, bring the Q4 and Q1-to-date financials to Riyadh — they'll want to see the numbers
+05/03/2024, 10:24 - Karim: Already preparing the deck. Will share Friday for review
+15/03/2024, 17:45 - Ahmed: Team — great news from Riyadh
+15/03/2024, 17:45 - Ahmed: They agreed to expand the distribution agreement to Kuwait and Bahrain
+15/03/2024, 17:46 - Ahmed: Contract signed today. Effective April 1st
+15/03/2024, 17:47 - Sara: هذا رائع! Félicitations Ahmed!
+15/03/2024, 17:48 - Karim: Fantastic news! This is a major milestone for Acme
+15/03/2024, 17:49 - Ahmed: Couldn't have done it without the Q4/Q1 numbers you both prepared
+15/03/2024, 17:50 - Ahmed: Riyadh-Contract-March2024.pdf (file attached)
+15/03/2024, 17:50 - Ahmed: Signed contract for your records
+15/03/2024, 17:51 - Sara: Received. I'll file it and update the contracts register
+15/03/2024, 17:52 - Karim: Next step — operational plan for Kuwait and Bahrain launch. I'll start a draft this week
+15/03/2024, 17:53 - Ahmed: Perfect. Let's plan a full team session the week of March 25th
+15/03/2024, 17:54 - Sara: Works for me
+15/03/2024, 17:55 - Karim: Same. Looking forward to it

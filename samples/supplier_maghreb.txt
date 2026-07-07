@@ -1,0 +1,45 @@
+03/01/2024, 11:00 - Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them.
+03/01/2024, 11:01 - Sara: Bonjour Ali, bonne année!
+03/01/2024, 11:02 - Ali Hadj: Bonjour Sara! Bonne année à vous aussi et à toute l'équipe
+03/01/2024, 11:03 - Sara: Merci. Je voulais qu'on discute du renouvellement du contrat — il expire fin janvier
+03/01/2024, 11:04 - Ali Hadj: Oui tout à fait, j'allais vous en parler. Nous souhaitons renouveler bien sûr
+03/01/2024, 11:05 - Sara: Parfait. Il y a quelques points à négocier cette année
+03/01/2024, 11:06 - Ali Hadj: Je vous écoute
+03/01/2024, 11:07 - Sara: D'abord les délais de livraison — on a eu des retards en Q4 qui ont impacté nos clients
+03/01/2024, 11:08 - Ali Hadj: Je comprends, on a eu des problèmes au port de Tunis en décembre. C'était exceptionnel
+03/01/2024, 11:09 - Sara: On a besoin d'une garantie contractuelle — maximum 5 jours de retard sinon pénalité
+03/01/2024, 11:10 - Ali Hadj: 5 jours c'est serré. Je peux m'engager sur 7 jours ouvrables
+03/01/2024, 11:11 - Sara: On va dire 6 jours et on inclut une clause de force majeure pour les cas exceptionnels
+03/01/2024, 11:12 - Ali Hadj: Ça me convient. Et pour les volumes?
+03/01/2024, 11:13 - Sara: On prévoit une augmentation de 20% des volumes sur la ligne électronique en Q1
+03/01/2024, 11:14 - Ali Hadj: Très bien. Pour cette augmentation on peut offrir une remise de 2% sur le tarif actuel
+03/01/2024, 11:15 - Sara: 2% c'est insuffisant vu les volumes. On espérait 4%
+03/01/2024, 11:16 - Ali Hadj: Nos coûts de production ont augmenté en octobre — c'est pour ça qu'on a dû réviser nos tarifs
+03/01/2024, 11:17 - Sara: Oui on sait, ça a impacté nos marges aussi. C'est pour ça qu'on a besoin de compensation sur le volume
+03/01/2024, 11:18 - Ali Hadj: Je peux faire 3% si vous vous engagez sur les volumes pour 6 mois
+03/01/2024, 11:19 - Sara: D'accord pour 3% avec engagement 6 mois. Je vais faire valider par Ahmed
+03/01/2024, 11:20 - Ali Hadj: Parfait. Et le paiement — vous étiez sur 60 jours?
+03/01/2024, 11:21 - Sara: Oui 60 jours fin de mois. On souhaite garder les mêmes conditions
+03/01/2024, 11:22 - Ali Hadj: Pas de problème. Je prépare un projet de contrat cette semaine
+10/01/2024, 09:30 - Ali Hadj: Sara, j'ai envoyé le projet de contrat par email hier soir
+10/01/2024, 09:31 - Sara: Reçu, je le lis aujourd'hui
+10/01/2024, 09:32 - Sara: Ali une question — le contrat mentionne une révision de prix possible en juillet. C'est nouveau
+10/01/2024, 09:33 - Ali Hadj: Oui on a ajouté cette clause vu l'instabilité des coûts matières. C'est plafonné à 5%
+10/01/2024, 09:34 - Sara: On va devoir enlever cette clause ou la plafonner à 2%
+10/01/2024, 09:35 - Ali Hadj: 2% c'est trop bas pour nous. On peut faire 3% maximum?
+10/01/2024, 09:36 - Sara: Je reviens vers vous. Il faut que j'en parle avec Ahmed et Karim
+10/01/2024, 15:00 - Sara: Ali, on accepte 3% de révision maximale en juillet mais seulement si indexé sur l'inflation officielle
+10/01/2024, 15:01 - Ali Hadj: C'est raisonnable. Je mets à jour le contrat
+10/01/2024, 15:02 - Sara: Parfait. Et pour la livraison du mois de janvier — on a un client qui attend la commande #MGH-089
+10/01/2024, 15:03 - Ali Hadj: Oui cette commande est prête. On peut expédier lundi 15 janvier
+10/01/2024, 15:04 - Sara: Parfait. Valeur de la commande c'est combien?
+10/01/2024, 15:05 - Ali Hadj: 43 500 USD, conformément au bon de commande
+10/01/2024, 15:06 - Sara: OK. Notre client a déjà payé 50% donc on vous vire le solde à réception des documents d'expédition
+10/01/2024, 15:07 - Ali Hadj: Compris. Je vous envoie le BL et la facture dès que le container est chargé
+18/01/2024, 10:00 - Ali Hadj: Sara, le container MGH-089 a été chargé hier. Voici les documents
+18/01/2024, 10:01 - Ali Hadj: BL-MGH-089-JAN2024.pdf (file attached)
+18/01/2024, 10:02 - Ali Hadj: FACTURE-MGH-089.pdf (file attached)
+18/01/2024, 10:03 - Sara: Reçu merci. Je lance le virement aujourd'hui
+18/01/2024, 10:04 - Ali Hadj: Merci Sara. Le contrat renouvelé — vous l'avez signé?
+18/01/2024, 10:05 - Sara: Oui on le signe cette semaine et on vous envoie le scan
+18/01/2024, 10:06 - Ali Hadj: Parfait, bonne collaboration pour 2024!

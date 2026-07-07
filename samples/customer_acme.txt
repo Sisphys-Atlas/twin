@@ -1,0 +1,41 @@
+05/01/2024, 10:00 - Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them.
+05/01/2024, 10:01 - Youssef Benmoussa: Good morning Ahmed, hope you had a good new year
+05/01/2024, 10:02 - Ahmed: Good morning Youssef! Yes great, hope the same for you and Acme
+05/01/2024, 10:03 - Youssef Benmoussa: I wanted to follow up on our order from December — Order #AC-2023-089
+05/01/2024, 10:04 - Ahmed: Yes of course, let me check
+05/01/2024, 10:05 - Ahmed: OK so the shipment left Tunis port on December 28. It should arrive in Casablanca by January 12
+05/01/2024, 10:06 - Youssef Benmoussa: That's later than expected. We were told December 30
+05/01/2024, 10:07 - Ahmed: I understand, there was a customs clearance delay on the Tunis side — 3 days extra unfortunately
+05/01/2024, 10:08 - Youssef Benmoussa: This is the second delay on this order. It's causing issues with our warehouse planning
+05/01/2024, 10:09 - Ahmed: I completely understand and I apologize. We'll make sure the next order has priority handling
+05/01/2024, 10:10 - Youssef Benmoussa: What does priority handling mean exactly?
+05/01/2024, 10:11 - Ahmed: It means your shipment is processed first at our Tunis warehouse and we use a dedicated freight forwarder — no shared containers
+05/01/2024, 10:12 - Youssef Benmoussa: OK. And what about compensation for the delay?
+05/01/2024, 10:14 - Ahmed: I can offer a 3% discount on your next order as a goodwill gesture
+05/01/2024, 10:15 - Youssef Benmoussa: We were expecting at least 5% given the disruption this caused
+05/01/2024, 10:17 - Ahmed: Let me check with my manager and come back to you by end of day
+05/01/2024, 10:18 - Youssef Benmoussa: OK thank you
+12/01/2024, 14:30 - Ahmed: Youssef, good news — your shipment cleared Casablanca customs this morning
+12/01/2024, 14:31 - Ahmed: It will be at your warehouse by Monday January 15
+12/01/2024, 14:32 - Youssef Benmoussa: Great, finally. And the discount?
+12/01/2024, 14:33 - Ahmed: My manager approved 4% on your next order — I'll put it in writing
+12/01/2024, 14:34 - Youssef Benmoussa: Accepted. Please send the formal confirmation by email
+12/01/2024, 14:35 - Ahmed: Will do today. And for your next order — are you still planning to reorder the electronics line?
+12/01/2024, 14:36 - Youssef Benmoussa: Yes, roughly the same quantities as last time. But we heard the prices went up
+12/01/2024, 14:37 - Ahmed: There was a price revision in Q4 due to supplier cost increases. New pricing list will be ready next week
+12/01/2024, 14:38 - Youssef Benmoussa: Please send it as soon as it's ready, we need to plan our Q1 budget
+12/01/2024, 14:39 - Ahmed: Absolutely, you'll be the first to receive it
+15/01/2024, 09:00 - Youssef Benmoussa: Ahmed, goods received this morning. All 47 units accounted for
+15/01/2024, 09:01 - Ahmed: Great news! Any quality issues?
+15/01/2024, 09:02 - Youssef Benmoussa: 2 units have damaged packaging but the products look fine. I'll send photos
+15/01/2024, 09:03 - Ahmed: Please do, we'll file a claim with the freight company
+15/01/2024, 09:04 - Youssef Benmoussa: Sending now
+15/01/2024, 09:05 - Youssef Benmoussa: IMG-20240115-WA0001.jpg (file attached)
+15/01/2024, 09:05 - Youssef Benmoussa: IMG-20240115-WA0002.jpg (file attached)
+15/01/2024, 09:06 - Ahmed: Received. I'll handle the claim and keep you posted
+15/01/2024, 09:07 - Youssef Benmoussa: Thank you. Overall happy with the relationship, just need the logistics to be more reliable
+15/01/2024, 09:08 - Ahmed: Understood — it's our priority for Q1. Looking forward to the next order
+22/01/2024, 16:00 - Youssef Benmoussa: Ahmed did you send the new pricing list?
+22/01/2024, 16:02 - Ahmed: My apologies — Karim is finalizing it this week, you'll have it by Friday
+22/01/2024, 16:03 - Youssef Benmoussa: OK Friday is the deadline for me otherwise I'll have to use last year's pricing for the budget
+22/01/2024, 16:04 - Ahmed: Understood, I'll make sure it's sent Thursday at the latest

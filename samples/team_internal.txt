@@ -1,0 +1,64 @@
+03/01/2024, 09:00 - Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them.
+03/01/2024, 09:01 - Ahmed: صباح الخير يا جماعة
+03/01/2024, 09:01 - Ahmed: Happy new year! Hope 2024 is a big year for all of us
+03/01/2024, 09:04 - Sara: صباح النور يا أحمد! سنة مبروكة على الجميع
+03/01/2024, 09:05 - Sara: Bonne année à tous!
+03/01/2024, 09:07 - Karim: Bonne année! Let's make it a strong year
+03/01/2024, 09:09 - Karim: BTW the Q4 final numbers just came in from finance
+03/01/2024, 09:10 - Ahmed: Waiting!
+03/01/2024, 09:11 - Karim: Revenue up 18% vs Q3. Strong close overall
+03/01/2024, 09:12 - Karim: But margins were squeezed on the electronics line — Q4 pricing needs a full review
+03/01/2024, 09:13 - Ahmed: Yes exactly. The Q4 pricing on electronics was too low
+03/01/2024, 09:13 - Ahmed: The supplier raised their rates in October and we didn't adjust our prices fast enough
+03/01/2024, 09:14 - Ahmed: We lost around 4% margin on that line alone
+03/01/2024, 09:15 - Sara: صح، الموردين رفعوا أسعارهم في أكتوبر وما قدرنا نعدل بسرعة كافية
+03/01/2024, 09:16 - Sara: We need a faster repricing process — this can't happen again
+03/01/2024, 09:18 - Karim: Agreed. I'll prepare a revised pricing model for the electronics line by end of next week
+03/01/2024, 09:19 - Ahmed: Please share before you finalize — I need to run it by the Riyadh office first
+03/01/2024, 09:19 - Karim: Will do
+03/01/2024, 09:21 - Sara: Also we need to discuss the Maghreb Supplies contract renewal — it expires end of January
+03/01/2024, 09:22 - Ahmed: Yes let's schedule a call this week. I'll send a calendar invite
+03/01/2024, 09:23 - Karim: Works for me, any day after Tuesday
+03/01/2024, 09:24 - Sara: Same
+08/01/2024, 10:15 - Ahmed: Morning team — quick update on the Tunis shipment
+08/01/2024, 10:16 - Ahmed: PTT-20240108-WA0012.opus (file attached)
+08/01/2024, 10:22 - Sara: Listened. So the container is stuck at the port?
+08/01/2024, 10:23 - Ahmed: Yes, customs clearance issue. The broker says 3–5 business days
+08/01/2024, 10:23 - Ahmed: I already sent them the updated COO certificate this morning
+08/01/2024, 10:25 - Karim: كم قيمة الشحنة؟
+08/01/2024, 10:26 - Ahmed: 87,000 USD. Client already paid 50% deposit in October
+08/01/2024, 10:27 - Karim: OK so we have exposure. Is there a penalty clause for late delivery?
+08/01/2024, 10:28 - Ahmed: Not in the current contract — but Youssef from Acme is already asking questions
+08/01/2024, 10:29 - Sara: He messaged me too. He's not happy
+08/01/2024, 10:30 - Ahmed: I'll handle Youssef personally. Sara can you follow up with Ali at Maghreb Supplies about the delay cause?
+08/01/2024, 10:31 - Sara: On it
+08/01/2024, 10:32 - Karim: We should add penalty clauses to all new contracts going forward
+08/01/2024, 10:33 - Ahmed: 100% agree. Let's discuss in Friday's meeting
+10/01/2024, 14:00 - Karim: Team — pricing model is ready for review
+10/01/2024, 14:01 - Karim: Electronics-Pricing-Q1-2024.xlsx (file attached)
+10/01/2024, 14:02 - Ahmed: Thanks Karim, reviewing now
+10/01/2024, 14:15 - Ahmed: Looks good overall. Two comments: line 7 the margin on SKU-E204 seems low, and we need to factor in the freight cost increase from Q4
+10/01/2024, 14:16 - Karim: Good catch on SKU-E204 — I'll adjust. Freight costs I'll add a separate column
+10/01/2024, 14:17 - Sara: Also Youssef from Acme asked for the new pricing list urgently — he has a budget deadline
+10/01/2024, 14:18 - Ahmed: Let's finalize by Thursday and send to Youssef first
+10/01/2024, 14:19 - Karim: Thursday is fine
+15/01/2024, 11:00 - Sara: Good news — Acme shipment delivered this morning. Youssef confirmed receipt
+15/01/2024, 11:01 - Ahmed:
+15/01/2024, 11:02 - Ahmed: Any issues?
+15/01/2024, 11:03 - Sara: 2 units with damaged packaging. He sent photos, we need to file a freight claim
+15/01/2024, 11:04 - Karim: I'll handle the claim with DHL. Can you forward the photos Sara?
+15/01/2024, 11:05 - Sara: Forwarding now
+15/01/2024, 11:06 - Ahmed: And the 4% discount I promised Youssef — Karim can you note that against his account?
+15/01/2024, 11:07 - Karim: Wait — you gave 4%? I thought we agreed max 3% for logistics issues
+15/01/2024, 11:08 - Ahmed: It was the second delay on this order. I had to go to 4% to keep the relationship
+15/01/2024, 11:09 - Karim: OK understood. But going forward let's agree a discount matrix so we're consistent
+15/01/2024, 11:10 - Ahmed: Great idea. Add it to Friday's agenda
+15/01/2024, 11:11 - Sara: Also — Maghreb Supplies contract is nearly done. Ali accepted 3% volume discount and 6-day delivery SLA
+15/01/2024, 11:12 - Ahmed:
+15/01/2024, 11:12 - Karim: Nice work Sara
+22/01/2024, 09:00 - Ahmed: Team — Riyadh office approved the new pricing. Karim please send to Youssef today
+22/01/2024, 09:01 - Karim: Sending now
+22/01/2024, 09:02 - Sara: Also the Maghreb Supplies contract is signed — just received the scan from Ali
+22/01/2024, 09:03 - Ahmed: Excellent. Q1 is off to a good start
+22/01/2024, 09:04 - Karim: Agreed. Q1 target is 22% growth vs Q4 — let's make it happen
+22/01/2024, 09:05 - Sara: Let's go!
