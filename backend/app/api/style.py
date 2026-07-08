@@ -74,10 +74,8 @@ def get_style(_: User = Depends(get_current_user)):
     return {"exists": True, **profile}
 
 
-@router.post("/style/learn")
-def learn_style(workspace_id: int = 1, db: Session = Depends(get_db), _: User = Depends(require_owner)):
-    """Analyze the owner's own messages and generate a twin style profile."""
-
+def _run_learn(workspace_id: int, db: Session) -> dict:
+    """Core style learning logic — called by the API endpoint and background tasks."""
     rows = (
         db.query(Message).join(Chat)
         .filter(
@@ -95,7 +93,7 @@ def learn_style(workspace_id: int = 1, db: Session = Depends(get_db), _: User = 
 
     if len(sample) < 10:
         return {
-            "error": f"Only {len(sample)} messages found. Sync your chats first so there is enough data to learn from.",
+            "error": f"Only {len(sample)} messages found. Sync your chats first.",
             "count": len(sample),
         }
 
@@ -106,23 +104,28 @@ def learn_style(workspace_id: int = 1, db: Session = Depends(get_db), _: User = 
         _ANALYSIS_PROMPT.format(count=len(sample), messages="\n".join(f"• {m}" for m in sample)),
         generation_config=genai.types.GenerationConfig(temperature=0.2),
     )
-    system_prompt = style_resp.text.strip()
-
     summary_resp = model.generate_content(
         _SUMMARY_PROMPT.format(messages="\n".join(sample[:40])),
         generation_config=genai.types.GenerationConfig(temperature=0.2),
     )
-    summary = summary_resp.text.strip()
 
-    profile = {
+    profile = load_style() or {}
+    profile.update({
         "workspace_id": workspace_id,
-        "system_prompt": system_prompt,
-        "summary": summary,
+        "system_prompt": style_resp.text.strip(),
+        "summary": summary_resp.text.strip(),
         "message_count": len(sample),
         "generated_at": datetime.utcnow().isoformat(),
-    }
+        "approved_since_last_learn": 0,
+    })
     save_style(profile)
     return {"exists": True, **profile}
+
+
+@router.post("/style/learn")
+def learn_style(workspace_id: int = 1, db: Session = Depends(get_db), _: User = Depends(require_owner)):
+    """Analyze the owner's own messages and generate a twin style profile."""
+    return _run_learn(workspace_id, db)
 
 
 @router.post("/style/signature")

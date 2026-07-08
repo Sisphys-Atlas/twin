@@ -146,6 +146,8 @@ class Contact(Base):
     message_count: Mapped[int]             = mapped_column(default=0)
     chat_count:    Mapped[int]             = mapped_column(default=0)
     last_seen:     Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    notes:         Mapped[Optional[str]]   = mapped_column(Text, nullable=True)
+    tags:          Mapped[Optional[list]]  = mapped_column(ARRAY(String), nullable=True)
 
     workspace:   Mapped["Workspace"]              = relationship(back_populates="contacts")
     appearances: Mapped[list["ContactAppearance"]] = relationship(back_populates="contact", cascade="all, delete-orphan")

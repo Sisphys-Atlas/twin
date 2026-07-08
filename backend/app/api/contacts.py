@@ -1,13 +1,19 @@
 """Contact list and profile endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_assistant
 from app.kb.database import get_db
 from app.kb.models import Chat, Contact, ContactAppearance, Message, User
 
 router = APIRouter()
+
+
+class ContactPatch(BaseModel):
+    notes: str | None = None
+    tags:  list[str] | None = None
 
 
 @router.get("/contacts")
@@ -80,6 +86,24 @@ def get_contact(contact_id: int, db: Session = Depends(get_db), _: User = Depend
     }
 
 
+@router.patch("/contacts/{contact_id}")
+def patch_contact(
+    contact_id: int,
+    body: ContactPatch,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_assistant),
+):
+    contact = db.query(Contact).filter(Contact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    if body.notes is not None:
+        contact.notes = body.notes.strip() or None
+    if body.tags is not None:
+        contact.tags = [t.strip() for t in body.tags if t.strip()] or None
+    db.commit()
+    return _fmt_contact(contact)
+
+
 def _fmt_contact(c: Contact) -> dict:
     return {
         "id": c.id,
@@ -87,4 +111,6 @@ def _fmt_contact(c: Contact) -> dict:
         "message_count": c.message_count,
         "chat_count": c.chat_count,
         "last_seen": c.last_seen.isoformat() if c.last_seen else None,
+        "notes": c.notes,
+        "tags": c.tags or [],
     }

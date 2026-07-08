@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api import agent, analytics, auth, chat, contacts, search, status, style, upload, whatsapp, workspaces
 from app.core.security import hash_password
@@ -14,6 +15,12 @@ from app.kb.models import Base, User, Workspace
 async def lifespan(app: FastAPI):
     # Ensure all tables exist (safe no-op if already created)
     Base.metadata.create_all(bind=engine)
+
+    # Idempotent migrations — add new columns to existing tables
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS notes TEXT"))
+        conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags TEXT[]"))
+        conn.commit()
 
     db = SessionLocal()
     try:

@@ -287,10 +287,29 @@ def _index_sent_reply(phone: str, text: str, workspace_id: int = 1):
     db = SessionLocal()
     try:
         _index_live_message(db, phone, "Me", text, int(datetime.now(timezone.utc).timestamp()), workspace_id)
+        _maybe_update_style(workspace_id, db)
     except Exception as e:
         print(f"[whatsapp] sent reply indexing failed for {phone}: {e}")
     finally:
         db.close()
+
+
+def _maybe_update_style(workspace_id: int, db):
+    """Increment approved-reply counter; re-learn style every 10 approvals."""
+    from app.api.style import load_style, save_style, _run_learn
+    profile = load_style() or {}
+    count = profile.get("approved_since_last_learn", 0) + 1
+    if count >= 10:
+        print(f"[style] {count} approved replies — triggering background re-learn")
+        try:
+            _run_learn(workspace_id, db)
+        except Exception as e:
+            print(f"[style] background re-learn failed: {e}")
+            profile["approved_since_last_learn"] = count
+            save_style(profile)
+    else:
+        profile["approved_since_last_learn"] = count
+        save_style(profile)
 
 
 @router.post("/whatsapp/reject/{phone}")
