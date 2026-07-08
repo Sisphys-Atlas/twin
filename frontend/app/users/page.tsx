@@ -295,16 +295,13 @@ export default function UsersPage() {
                     </div>
                     <div>
                       <label style={S.label}>Phone number (optional)</label>
-                      <input value={wsPhone} onChange={e => setWsPhone(e.target.value)} placeholder="+212 6XX XXX XXX" style={S.input}
+                      <input value={wsPhone} onChange={e => setWsPhone(e.target.value)} placeholder="+1 234 567 8900" style={S.input}
                         onFocus={e => (e.target.style.borderColor = "#22c55e")} onBlur={e => (e.target.style.borderColor = "#27272a")} />
                     </div>
                     <button type="submit" disabled={wsAddLoading} style={S.addBtn}>{wsAddLoading ? "Adding…" : "Add"}</button>
                     <button type="button" onClick={() => setShowAddWs(false)} style={S.cancelBtn}>Cancel</button>
                     {wsAddError && <div style={S.errMsg}>{wsAddError}</div>}
                   </form>
-                  <div style={{ marginTop: 12, fontSize: 12, color: "#3f3f46", lineHeight: 1.6 }}>
-                    After adding, start a second bridge instance with: <code style={{ color: "#22c55e", background: "#18181b", padding: "2px 6px", borderRadius: 4, fontFamily: "'Fira Code', monospace" }}>BRIDGE_PORT={Math.max(...workspaces.map(w => w.bridge_port), 3000) + 1} node bridge/index.js</code>
-                  </div>
                 </div>
               )}
 

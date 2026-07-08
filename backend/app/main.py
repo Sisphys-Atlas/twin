@@ -18,6 +18,9 @@ async def lifespan(app: FastAPI):
 
     # Idempotent migrations — add new columns to existing tables
     with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS bridge_port INTEGER DEFAULT 3001"))
+        conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS phone_label VARCHAR(50)"))
+        conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"))
         conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS notes TEXT"))
         conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags TEXT[]"))
         conn.commit()
