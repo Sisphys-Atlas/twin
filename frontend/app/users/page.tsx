@@ -54,7 +54,6 @@ export default function UsersPage() {
   const [wsLoading,    setWsLoading]    = useState(true);
   const [showAddWs,    setShowAddWs]    = useState(false);
   const [wsName,       setWsName]       = useState("");
-  const [wsPort,       setWsPort]       = useState("3002");
   const [wsPhone,      setWsPhone]      = useState("");
   const [wsAddError,   setWsAddError]   = useState("");
   const [wsAddLoading, setWsAddLoading] = useState(false);
@@ -99,13 +98,14 @@ export default function UsersPage() {
     setWsAddError("");
     setWsAddLoading(true);
     try {
+      const nextPort = Math.max(...workspaces.map(w => w.bridge_port), 3000) + 1;
       const res = await apiFetch("/api/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: wsName, bridge_port: Number(wsPort), phone_label: wsPhone || null }),
+        body: JSON.stringify({ name: wsName, bridge_port: nextPort, phone_label: wsPhone || null }),
       });
       if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as any).detail || "Failed to create number"); }
-      setWsName(""); setWsPort("3002"); setWsPhone(""); setShowAddWs(false);
+      setWsName(""); setWsPhone(""); setShowAddWs(false);
       loadWorkspaces();
     } catch (e: any) { setWsAddError(e.message); }
     finally { setWsAddLoading(false); }
@@ -289,17 +289,12 @@ export default function UsersPage() {
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#52525b", marginBottom: 16, textTransform: "uppercase", letterSpacing: "0.08em" }}>New number</div>
                   <form onSubmit={handleAddWorkspace} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
                     <div>
-                      <label style={S.label}>Name</label>
-                      <input value={wsName} onChange={e => setWsName(e.target.value)} required placeholder="Business 2" style={S.input}
+                      <label style={S.label}>Label</label>
+                      <input value={wsName} onChange={e => setWsName(e.target.value)} required placeholder="Second business" style={S.input}
                         onFocus={e => (e.target.style.borderColor = "#22c55e")} onBlur={e => (e.target.style.borderColor = "#27272a")} />
                     </div>
                     <div>
-                      <label style={S.label}>Bridge port</label>
-                      <input value={wsPort} onChange={e => setWsPort(e.target.value)} required placeholder="3002" style={{ ...S.input, width: 80 }}
-                        onFocus={e => (e.target.style.borderColor = "#22c55e")} onBlur={e => (e.target.style.borderColor = "#27272a")} />
-                    </div>
-                    <div>
-                      <label style={S.label}>Phone label (optional)</label>
+                      <label style={S.label}>Phone number (optional)</label>
                       <input value={wsPhone} onChange={e => setWsPhone(e.target.value)} placeholder="+212 6XX XXX XXX" style={S.input}
                         onFocus={e => (e.target.style.borderColor = "#22c55e")} onBlur={e => (e.target.style.borderColor = "#27272a")} />
                     </div>
@@ -308,7 +303,7 @@ export default function UsersPage() {
                     {wsAddError && <div style={S.errMsg}>{wsAddError}</div>}
                   </form>
                   <div style={{ marginTop: 12, fontSize: 12, color: "#3f3f46", lineHeight: 1.6 }}>
-                    Start a second bridge with: <code style={{ color: "#22c55e", background: "#18181b", padding: "2px 6px", borderRadius: 4, fontFamily: "'Fira Code', monospace" }}>BRIDGE_PORT=3002 node bridge/index.js</code>
+                    After adding, start a second bridge instance with: <code style={{ color: "#22c55e", background: "#18181b", padding: "2px 6px", borderRadius: 4, fontFamily: "'Fira Code', monospace" }}>BRIDGE_PORT={Math.max(...workspaces.map(w => w.bridge_port), 3000) + 1} node bridge/index.js</code>
                   </div>
                 </div>
               )}
@@ -320,7 +315,7 @@ export default function UsersPage() {
                   <table style={S.table}>
                     <thead>
                       <tr>
-                        {["Name", "Phone", "Bridge port", "Chats", "Actions"].map(h => (
+                        {["Name", "Phone number", "Chats", "Actions"].map(h => (
                           <th key={h} style={S.th}>{h}</th>
                         ))}
                       </tr>
@@ -342,9 +337,6 @@ export default function UsersPage() {
                               onBlur={e => patchWorkspace(ws.id, { phone_label: e.target.value || null })}
                               style={{ background: "transparent", border: "none", color: "#71717a", fontSize: 13, outline: "none", width: 130 }}
                             />
-                          </td>
-                          <td style={{ ...S.td, fontFamily: "'Fira Code', monospace", color: "#22c55e", fontSize: 12 }}>
-                            :{ws.bridge_port}
                           </td>
                           <td style={{ ...S.td, fontSize: 12 }}>{ws.chat_count}</td>
                           <td style={S.td}>
