@@ -1,14 +1,25 @@
 """Workspace endpoints — one workspace = one WhatsApp number."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user, require_owner
+from app.core.security import BRIDGE_SECRET, get_current_user, require_owner
 from app.kb.database import get_db
 from app.kb.models import Chat, User, Workspace
 
 router = APIRouter()
+
+
+def _bridge_or_user(request: Request, db: Session = Depends(get_db)) -> None:
+    """Accept calls from the bridge (X-Bridge-Secret) OR an authenticated user.
+    The bridge is a plain Node process with no login session, so any endpoint
+    it calls directly (like resolving the default workspace) needs this."""
+    secret = request.headers.get("X-Bridge-Secret", "")
+    if secret == BRIDGE_SECRET:
+        return
+    get_current_user(request, db)  # Raises 401 if not authenticated
+
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -77,12 +88,32 @@ def list_workspaces(
 @router.get("/workspace/default")
 def get_or_create_default(
     db: Session = Depends(get_db),
-    _:  User    = Depends(get_current_user),
+    _:  None    = Depends(_bridge_or_user),
 ):
     """Return the first (default) workspace, creating it if it doesn't exist."""
     ws = db.query(Workspace).first()
     if not ws:
         ws = Workspace(name="My Workspace", bridge_port=3001)
+        db.add(ws)
+        db.commit()
+        db.refresh(ws)
+    return _fmt(ws, db)
+
+
+@router.get("/workspace/by-port/{port}")
+def get_workspace_by_port(
+    port: int,
+    db: Session = Depends(get_db),
+    _:  None    = Depends(_bridge_or_user),
+):
+    """Resolve a workspace by its bridge_port — used by each bridge instance
+    to correctly identify ITS OWN workspace, instead of always resolving to
+    the first/default one (which is wrong for any second or third number)."""
+    ws = db.query(Workspace).filter(Workspace.bridge_port == port).first()
+    if not ws:
+        ws = db.query(Workspace).first()
+    if not ws:
+        ws = Workspace(name="My Workspace", bridge_port=port)
         db.add(ws)
         db.commit()
         db.refresh(ws)

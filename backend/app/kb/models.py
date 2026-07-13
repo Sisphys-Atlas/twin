@@ -69,6 +69,8 @@ class Chat(Base):
     workspace_id:      Mapped[Optional[int]]  = mapped_column(ForeignKey("workspaces.id", ondelete="SET NULL"))
     filename:          Mapped[str]            = mapped_column(String(255))
     original_filename: Mapped[Optional[str]]  = mapped_column(String(255))
+    phone:             Mapped[Optional[str]]  = mapped_column(String(50), index=True)
+    is_group:          Mapped[bool]           = mapped_column(default=False)
     category:          Mapped[str]            = mapped_column(String(50), default="other")
     upload_time:       Mapped[datetime]       = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     status:            Mapped[str]            = mapped_column(String(50), default="pending")

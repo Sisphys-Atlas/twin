@@ -290,6 +290,25 @@ export default function AgentPage() {
     return () => { clearInterval(t1); clearInterval(t2); if (syncPollRef.current) clearInterval(syncPollRef.current); };
   }, [pollStatus, pollConversations, pollSync, loadStyleProfile]);
 
+  // While the QR modal is open, poll faster — a freshly auto-started bridge
+  // (fresh Puppeteer/Chrome boot) can take several seconds to produce a QR,
+  // and the background 8s cadence would feel sluggish for that window.
+  useEffect(() => {
+    if (!showQR) return;
+    pollStatus();
+    const t = setInterval(pollStatus, 2000);
+    return () => clearInterval(t);
+  }, [showQR, pollStatus]);
+
+  // Auto-close the QR modal the instant a connection is confirmed — covers
+  // both a saved session reconnecting on its own (no scan needed) and a
+  // fresh scan succeeding, so it never has to be closed manually.
+  useEffect(() => {
+    if (showQR && bridgeStatus?.connected) {
+      setShowQR(false);
+    }
+  }, [showQR, bridgeStatus?.connected]);
+
   useEffect(() => { if (workspaceId) loadOverview(); }, [workspaceId, loadOverview]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [ownerMsgs]);
 
@@ -611,11 +630,18 @@ export default function AgentPage() {
                 <div style={{ display: "inline-block", background: "#fff", borderRadius: 10, padding: 12 }}>
                   <img src={bridgeStatus.qr} alt="QR" style={{ width: 200, height: 200, display: "block" }} />
                 </div>
+              ) : bridgeStatus?.error && !bridgeStatus.error.includes("Starting bridge") ? (
+                <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ textAlign: "center", padding: "0 8px" }}>
+                    <div style={{ fontSize: 20, marginBottom: 10 }}>⚠️</div>
+                    <span style={{ color: "#f87171", fontSize: 13, lineHeight: 1.5, display: "block" }}>{bridgeStatus.error}</span>
+                  </div>
+                </div>
               ) : (
                 <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <div style={{ textAlign: "center" }}>
                     <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #27272a", borderTopColor: "#22c55e", margin: "0 auto 12px" }} className="kb-spin" />
-                    <span style={{ color: "#52525b", fontSize: 13 }}>Waiting for QR code…</span>
+                    <span style={{ color: "#52525b", fontSize: 13 }}>{bridgeStatus?.error || "Waiting for QR code…"}</span>
                   </div>
                 </div>
               )}
@@ -797,7 +823,7 @@ export default function AgentPage() {
                   <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                     <button onClick={() => { setSyncState(null); setShowSync(false); setSyncChats(null); setChatSearch(""); loadOverview(); }} style={{ flex: 1, padding: "9px 0", borderRadius: 8, background: "#22c55e", color: "#000", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>Done</button>
                     {bridgeStatus?.connected && (
-                      <button onClick={startSync} style={{ padding: "9px 18px", borderRadius: 8, background: "transparent", color: "#71717a", fontSize: 13, border: "1px solid #27272a", cursor: "pointer" }}>Re-sync</button>
+                      <button onClick={() => { setSyncState(null); setChatSearch(""); loadSyncChats(); }} style={{ padding: "9px 18px", borderRadius: 8, background: "transparent", color: "#71717a", fontSize: 13, border: "1px solid #27272a", cursor: "pointer" }}>Re-sync</button>
                     )}
                   </div>
                 </div>

@@ -1,16 +1,21 @@
 """WhatsApp bridge relay — proxies status/send/approve, handles inbound drafts."""
 
+import os
 import re
+import subprocess
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core.security import get_current_user, require_assistant, require_owner, verify_bridge_secret
 from app.kb.database import SessionLocal, get_db
-from app.kb.models import User, Workspace
+from app.kb.models import Chat, User, Workspace
 
 router = APIRouter()
 
@@ -32,6 +37,77 @@ def get_bridge_url(request: Request, db: Session = Depends(get_db)) -> str:
     ws = db.query(Workspace).filter(Workspace.id == ws_id).first()
     port = ws.bridge_port if ws else _DEFAULT_BRIDGE_PORT
     return _bridge_url_for_port(port)
+
+
+def get_workspace(request: Request, db: Session = Depends(get_db)) -> Workspace | None:
+    try:
+        ws_id = int(request.headers.get("X-Workspace-ID", "1"))
+    except ValueError:
+        ws_id = 1
+    return db.query(Workspace).filter(Workspace.id == ws_id).first()
+
+
+# ── Bridge auto-start ────────────────────────────────────────────────────────────
+# Spawns a bridge process for a workspace on demand, so the owner never has to
+# manually open a terminal and run `BRIDGE_PORT=XXXX node index.js` for every
+# number they add. Only sensible for local/single-machine setups (backend and
+# bridge on the same filesystem) — disable with BRIDGE_AUTO_START=false.
+
+_bridge_processes: dict[int, subprocess.Popen] = {}   # workspace_id -> process
+_bridge_last_spawn: dict[int, float] = {}              # workspace_id -> unix time
+_SPAWN_COOLDOWN_SECONDS = 8  # avoid re-spawning while a just-started bridge is still booting
+
+
+def _resolve_bridge_dir() -> Path | None:
+    d = settings.bridge_dir
+    if not d.is_absolute():
+        # backend/app/api/whatsapp.py -> backend/app/api -> backend/app -> backend/
+        backend_root = Path(__file__).resolve().parent.parent.parent
+        d = (backend_root / d).resolve()
+    return d if (d / "index.js").exists() else None
+
+
+def ensure_bridge_running(ws: Workspace | None) -> None:
+    """Best-effort: spawn a bridge process for this workspace's port if one
+    isn't already tracked as running. Non-blocking — caller should retry the
+    actual bridge request a moment later if this was just spawned."""
+    if not settings.bridge_auto_start or ws is None:
+        return
+
+    proc = _bridge_processes.get(ws.id)
+    if proc is not None and proc.poll() is None:
+        return  # already running
+
+    last = _bridge_last_spawn.get(ws.id, 0)
+    if time.time() - last < _SPAWN_COOLDOWN_SECONDS:
+        return  # just tried — give it time to boot before retrying
+
+    bridge_dir = _resolve_bridge_dir()
+    if bridge_dir is None:
+        attempted = settings.bridge_dir
+        if not attempted.is_absolute():
+            attempted = (Path(__file__).resolve().parent.parent.parent / attempted).resolve()
+        print(f"[whatsapp] bridge_dir not found (looked in {attempted}) — cannot auto-start bridge for workspace {ws.id}. Set BRIDGE_DIR in backend/.env if bridge/ is somewhere else.")
+        return
+
+    _bridge_last_spawn[ws.id] = time.time()
+
+    log_path = bridge_dir / f".bridge-{ws.bridge_port}.log"
+    try:
+        log_file = open(log_path, "a")
+        env = {**os.environ, "BRIDGE_PORT": str(ws.bridge_port)}
+        proc = subprocess.Popen(
+            ["node", "index.js"],
+            cwd=str(bridge_dir),
+            env=env,
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+        )
+        _bridge_processes[ws.id] = proc
+        print(f"[whatsapp] auto-started bridge for workspace {ws.id} on port {ws.bridge_port} (pid {proc.pid}, log: {log_path})")
+    except Exception as e:
+        print(f"[whatsapp] failed to auto-start bridge for workspace {ws.id}: {e}")
 
 
 # ── Bridge proxy helpers ────────────────────────────────────────────────────────
@@ -60,11 +136,55 @@ async def _bridge_post(path: str, body: dict, bridge_url: str = f"http://localho
 async def whatsapp_status(
     _: User = Depends(get_current_user),
     bridge_url: str = Depends(get_bridge_url),
+    ws: Workspace | None = Depends(get_workspace),
 ):
     data = await _bridge_get("status", bridge_url)
     if data is None:
-        return {"connected": False, "qr": None, "error": "Bridge not running — start it with: cd bridge && npm start"}
+        ensure_bridge_running(ws)
+        return {"connected": False, "qr": None, "error": "Starting bridge for this number…"}
     return data
+
+
+@router.get("/whatsapp/inbox/rehydrate")
+async def whatsapp_inbox_rehydrate(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_bridge_secret),
+):
+    """Called by the bridge on startup to rebuild its in-memory inbox from
+    already-imported chats — without this, every bridge restart wipes the
+    visible Inbox even though nothing was actually lost in the database."""
+    from app.kb.models import Message
+
+    chats = (
+        db.query(Chat)
+        .filter(Chat.workspace_id == workspace_id, Chat.is_group.is_(False), Chat.phone.isnot(None))
+        .all()
+    )
+
+    result = []
+    for chat in chats:
+        msgs = (
+            db.query(Message)
+            .filter(Message.chat_id == chat.id, Message.sender.isnot(None))
+            .order_by(Message.timestamp.asc())
+            .limit(30)
+            .all()
+        )
+        if not msgs:
+            continue
+        name = (chat.original_filename or chat.phone).removesuffix(".txt")
+        result.append({
+            "phone": chat.phone,
+            "name": name,
+            "category": chat.category,
+            "messages": [
+                {"sender": m.sender, "body": m.body or "", "timestamp": m.timestamp.isoformat()}
+                for m in msgs
+            ],
+        })
+
+    return result
 
 
 @router.get("/whatsapp/conversations")
@@ -109,20 +229,28 @@ def _index_live_message(db, phone: str, name: str, body: str, timestamp_unix: in
     safe_name = re.sub(r'[<>:"/\\|?*]', '_', name)
     ts = datetime.fromtimestamp(timestamp_unix, tz=timezone.utc)
 
-    # Try to find existing chat synced for this contact
+    # Try to find existing chat for this contact — match by phone first
+    # (stable), falling back to name for chats that predate phone tracking.
     chat = (
         db.query(Chat)
-        .filter(
-            Chat.workspace_id == workspace_id,
-            Chat.original_filename.ilike(f"{safe_name}.txt"),
-        )
+        .filter(Chat.workspace_id == workspace_id, Chat.phone == phone)
         .first()
     )
+    if chat is None:
+        chat = (
+            db.query(Chat)
+            .filter(
+                Chat.workspace_id == workspace_id,
+                Chat.original_filename.ilike(f"{safe_name}.txt"),
+            )
+            .first()
+        )
 
     if chat is None:
         chat = Chat(
             filename=f"live_{phone}.txt",
             original_filename=f"{name}.txt",
+            phone=phone,
             workspace_id=workspace_id,
             category="customer",
             status="done",
@@ -131,6 +259,8 @@ def _index_live_message(db, phone: str, name: str, body: str, timestamp_unix: in
         )
         db.add(chat)
         db.flush()
+    elif not chat.phone:
+        chat.phone = phone  # backfill for chats created before phone tracking
 
     # Skip if already indexed (re-sync guard)
     exists = (
@@ -161,6 +291,12 @@ def _index_live_message(db, phone: str, name: str, body: str, timestamp_unix: in
         chat.date_from = ts
 
     db.commit()
+
+    try:
+        from app.kb.contacts import extract_contacts
+        extract_contacts(chat.id, workspace_id, db)
+    except Exception as e:
+        print(f"[whatsapp] contact extraction failed for chat {chat.id}: {e}")
 
 
 def _generate_and_push_draft(
@@ -399,6 +535,79 @@ async def whatsapp_sync_chats(
     return data
 
 
+@router.post("/whatsapp/sync/backfill-phones")
+async def whatsapp_backfill_phones(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_owner),
+    bridge_url: str = Depends(get_bridge_url),
+    ws: Workspace | None = Depends(get_workspace),
+):
+    """One-time fix for chats imported before phone/group tracking existed —
+    matches every chat to the bridge's current chat list by phone (or name as
+    a fallback) and fills in Chat.phone + Chat.is_group. Also removes any
+    Contact rows that turn out to be group-member IDs now that we know
+    which chats are actually groups, then re-runs extraction so the Contacts
+    page reflects the corrected data immediately."""
+    from app.kb.contacts import extract_contacts
+    from app.kb.models import Contact
+
+    ws_id = ws.id if ws else 1
+
+    bridge_chats = await _bridge_get("sync/chats", bridge_url)
+    if not isinstance(bridge_chats, list):
+        raise HTTPException(503, "Bridge not running or unreachable")
+
+    phone_to_group = {bc["phone"]: bc.get("isGroup", False) for bc in bridge_chats if bc.get("phone")}
+    name_to_bc = {bc["name"]: bc for bc in bridge_chats if bc.get("name")}
+
+    chats = db.query(Chat).filter(Chat.workspace_id == ws_id).all()
+    matched = 0
+    newly_group = []
+    for chat in chats:
+        bc = None
+        if chat.phone and chat.phone in phone_to_group:
+            bc = {"phone": chat.phone, "isGroup": phone_to_group[chat.phone]}
+        else:
+            name = (chat.original_filename or "").removesuffix(".txt")
+            bc = name_to_bc.get(name)
+
+        if not bc:
+            continue
+        matched += 1
+        if not chat.phone and bc.get("phone"):
+            chat.phone = bc["phone"]
+        was_group = chat.is_group
+        chat.is_group = bool(bc.get("isGroup", False))
+        if chat.is_group and not was_group:
+            newly_group.append(chat.id)
+
+    db.commit()
+
+    # Remove Contact rows that only exist because of chats we now know are
+    # groups (raw numeric IDs from group members, not real 1:1 contacts).
+    deleted = 0
+    if newly_group:
+        junk = db.query(Contact).filter(
+            Contact.workspace_id == ws_id,
+            Contact.display_name.op("~")("^[0-9]+$"),
+        ).all()
+        for c in junk:
+            db.delete(c)
+            deleted += 1
+        db.commit()
+
+        # Re-run extraction for every non-group chat so message_count/appearances
+        # reflect the correction (chats that were group-tagged just now are
+        # correctly skipped by extract_contacts going forward).
+        for chat in db.query(Chat).filter(Chat.workspace_id == ws_id, Chat.is_group.is_(False)).all():
+            try:
+                extract_contacts(chat.id, ws_id, db)
+            except Exception:
+                pass
+
+    return {"chats_checked": len(chats), "matched": matched, "newly_marked_group": len(newly_group), "junk_contacts_removed": deleted}
+
+
 @router.post("/whatsapp/sync/start")
 async def whatsapp_sync_start(
     req: SyncRequest,
@@ -409,6 +618,76 @@ async def whatsapp_sync_start(
     if req.phones:
         body["phones"] = req.phones
     return await _bridge_post("sync/start", body, bridge_url)
+
+
+class AddContactRequest(BaseModel):
+    phone: str
+    category: str = "other"
+
+
+@router.post("/whatsapp/sync/chat")
+async def whatsapp_sync_chat(
+    req: AddContactRequest,
+    _: User = Depends(require_assistant),
+    bridge_url: str = Depends(get_bridge_url),
+):
+    """Import a single contact's chat history on demand — used by the
+    Contacts page's "Add to chat" button for contacts that weren't picked
+    during the original bulk import."""
+    data = await _bridge_post("sync/chat", {"phone": req.phone, "category": req.category}, bridge_url)
+    if isinstance(data, dict) and "error" in data:
+        raise HTTPException(400, data["error"])
+    return data
+
+
+@router.get("/whatsapp/contacts/all")
+async def whatsapp_contacts_all(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    bridge_url: str = Depends(get_bridge_url),
+    ws: Workspace | None = Depends(get_workspace),
+):
+    """Merged view for the Contacts page: real imported contacts (with
+    message history) plus WhatsApp chats that haven't been imported yet, so
+    the owner can bring individual contacts in on demand instead of only
+    through the bulk sync picker."""
+    from app.kb.models import Contact
+
+    ws_id = ws.id if ws else 1
+
+    imported_phones = {
+        row[0] for row in db.query(Chat.phone)
+        .filter(Chat.workspace_id == ws_id, Chat.phone.isnot(None))
+        .all()
+    }
+
+    contacts = db.query(Contact).filter(Contact.workspace_id == ws_id).all()
+    imported = [{
+        "id": c.id,
+        "display_name": c.display_name,
+        "message_count": c.message_count,
+        "chat_count": c.chat_count,
+        "last_seen": c.last_seen.isoformat() if c.last_seen else None,
+        "notes": c.notes,
+        "tags": c.tags or [],
+        "imported": True,
+    } for c in contacts]
+
+    available = []
+    bridge_chats = await _bridge_get("sync/chats", bridge_url)
+    if isinstance(bridge_chats, list):
+        for bc in bridge_chats:
+            if bc.get("phone") in imported_phones:
+                continue
+            available.append({
+                "phone": bc.get("phone"),
+                "name": bc.get("name"),
+                "isGroup": bc.get("isGroup", False),
+                "lastMessage": bc.get("lastMessage"),
+                "imported": False,
+            })
+
+    return {"imported": imported, "available": available}
 
 
 # ── Demo mode ──────────────────────────────────────────────────────────────────

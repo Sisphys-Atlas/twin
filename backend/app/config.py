@@ -13,6 +13,12 @@ class Settings(BaseSettings):
 
     storage_path: Path = Path("../storage")
 
+    # Path to the bridge/ directory (relative to backend/, or absolute).
+    # Used to auto-start a bridge process for a workspace when it isn't
+    # already running, instead of requiring a manually-run terminal per number.
+    bridge_dir: Path = Path("../bridge")
+    bridge_auto_start: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

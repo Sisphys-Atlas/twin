@@ -16,6 +16,29 @@ class ContactPatch(BaseModel):
     tags:  list[str] | None = None
 
 
+@router.post("/contacts/backfill")
+def backfill_contacts(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_assistant),
+):
+    """Re-run contact extraction over every chat in a workspace. Useful after
+    upgrading to a version that indexes contacts from live messages — chats
+    that already had messages before that point never got contact rows
+    created, since extraction previously only ran during a full sync."""
+    from app.kb.contacts import extract_contacts
+
+    chats = db.query(Chat).filter(Chat.workspace_id == workspace_id).all()
+    for chat in chats:
+        try:
+            extract_contacts(chat.id, workspace_id, db)
+        except Exception as e:
+            print(f"[contacts] backfill failed for chat {chat.id}: {e}")
+
+    count = db.query(Contact).filter(Contact.workspace_id == workspace_id).count()
+    return {"chats_processed": len(chats), "contact_count": count}
+
+
 @router.get("/contacts")
 def list_contacts(workspace_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     """Return all contacts in a workspace ordered by message count."""

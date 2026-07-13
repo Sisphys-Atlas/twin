@@ -123,12 +123,7 @@ async function runDemoSync() {
     failed: 0, skipped: 0, current: null, log: [], finishedAt: null,
   });
 
-  let workspaceId = 1;
-  try {
-    const r = await fetch(`${BACKEND_URL}/api/workspace/default`);
-    const d = await r.json();
-    workspaceId = d.id;
-  } catch { syncLog('Could not fetch workspace id — using 1'); }
+  let workspaceId = await getWorkspaceId();
 
   syncLog(`Demo mode — importing ${ALL_CONTACTS.length} contacts…`);
 
@@ -239,6 +234,108 @@ function toStructuredEntry(msg, chatName) {
 
 // ── Sync job — uploads chat history to the KB ──────────────────────────────
 
+async function getWorkspaceId() {
+  try {
+    const r = await fetch(`${BACKEND_URL}/api/workspace/by-port/${PORT}`, {
+      headers: { 'X-Bridge-Secret': BRIDGE_SECRET },
+    });
+    const d = await r.json();
+    if (typeof d.id !== 'number') throw new Error(`unexpected response: ${JSON.stringify(d)}`);
+    return d.id;
+  } catch (e) {
+    console.error('[bridge] could not resolve workspace id, defaulting to 1:', e.message);
+    return 1;
+  }
+}
+
+// Rebuilds the in-memory inbox from already-imported chats in the KB — run
+// once at startup so restarting the bridge doesn't wipe the visible Inbox
+// (conversations only ever lived in memory before this).
+async function rehydrateInbox(workspaceId) {
+  try {
+    const r = await fetch(`${BACKEND_URL}/api/whatsapp/inbox/rehydrate?workspace_id=${workspaceId}`, {
+      headers: { 'X-Bridge-Secret': BRIDGE_SECRET },
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const chats = await r.json();
+
+    for (const c of chats) {
+      const conv = mkConv(c.phone, c.name, `${c.phone}@c.us`);
+      conv.messages = c.messages.map(m => ({
+        role:      m.sender === 'Me' ? 'agent' : 'customer',
+        content:   m.body,
+        timestamp: m.timestamp,
+      }));
+      conv.status = 'active';
+      if (conv.messages.length) {
+        conv.updatedAt = conv.messages[conv.messages.length - 1].timestamp;
+      }
+      conversations.set(c.phone, conv);
+    }
+
+    console.log(`[bridge] rehydrated inbox — ${chats.length} chat(s) restored from KB`);
+  } catch (e) {
+    console.error('[bridge] inbox rehydration failed:', e.message);
+  }
+}
+
+// Imports a single chat's history (used by both bulk sync and the
+// "Add to chat" single-contact import). Registers it in the live inbox
+// and uploads it to the KB. Returns a result summary, never throws.
+async function importOneChat(chat, category, workspaceId) {
+  const name  = chat.name || chat.id.user;
+  const phone = chat.id.user;
+
+  if (!conversations.has(phone)) {
+    conversations.set(phone, mkConv(phone, name, chat.id._serialized));
+  } else {
+    const conv = conversations.get(phone);
+    conv.name   = name;
+    conv.chatId = chat.id._serialized;
+  }
+
+  try {
+    const rawMessages = await chat.fetchMessages({ limit: 50 });
+
+    if (rawMessages.length === 0) {
+      return { status: 'empty', name, phone };
+    }
+
+    const structured = rawMessages.map(m => toStructuredEntry(m, name)).filter(Boolean);
+
+    if (structured.length === 0) {
+      return { status: 'empty', name, phone };
+    }
+
+    const res = await fetch(`${BACKEND_URL}/api/upload/import-messages`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Bridge-Secret': BRIDGE_SECRET },
+      body:    JSON.stringify({ chat_name: name, phone, is_group: !!chat.isGroup, category, workspace_id: workspaceId, messages: structured }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const result = await res.json();
+
+    // Populate the in-memory inbox thread too — upload-messages only feeds
+    // the knowledge base, it doesn't touch conversations, so without this
+    // the contact shows up in the inbox with an empty thread.
+    const conv = conversations.get(phone);
+    if (conv) {
+      conv.messages = structured.slice(-30).map(m => ({
+        role:      m.sender === 'Me' ? 'agent' : 'customer',
+        content:   m.body,
+        timestamp: new Date(m.timestamp * 1000).toISOString(),
+      }));
+      conv.updatedAt = conv.messages.length
+        ? conv.messages[conv.messages.length - 1].timestamp
+        : conv.updatedAt;
+    }
+
+    return { status: 'ok', name, phone, messageCount: structured.length, jobId: result.job_id };
+  } catch (e) {
+    return { status: 'error', name, phone, error: e.message };
+  }
+}
+
 async function runSync(category = 'customer', selectedPhones = null) {
   if (syncState.running) return;
   if (!isConnected)      throw new Error('Not connected to WhatsApp');
@@ -248,13 +345,7 @@ async function runSync(category = 'customer', selectedPhones = null) {
 
   Object.assign(syncState, { running: true, total: 0, done: 0, failed: 0, skipped: 0, current: null, log: [], finishedAt: null });
 
-  // get workspace id
-  let workspaceId = 1;
-  try {
-    const r = await fetch(`${BACKEND_URL}/api/workspace/default`);
-    const d = await r.json();
-    workspaceId = d.id;
-  } catch { syncLog('Could not fetch workspace id — using 1'); }
+  const workspaceId = await getWorkspaceId();
 
   let chats = await client.getChats();
   if (Array.isArray(selectedPhones) && selectedPhones.length > 0) {
@@ -267,70 +358,18 @@ async function runSync(category = 'customer', selectedPhones = null) {
   syncState.total = chats.length;
 
   for (const chat of chats) {
-    const name  = chat.name || chat.id.user;
-    const phone = chat.id.user;
-    syncState.current = name;
+    syncState.current = chat.name || chat.id.user;
+    const result = await importOneChat(chat, category, workspaceId);
 
-    // Register every contact in the conversations map so sends can resolve them by name
-    if (!conversations.has(phone)) {
-      conversations.set(phone, mkConv(phone, name, chat.id._serialized));
-    } else {
-      const conv = conversations.get(phone);
-      conv.name   = name;
-      conv.chatId = chat.id._serialized; // refresh serialized ID (handles LID rotation)
-    }
-
-    try {
-      const rawMessages = await chat.fetchMessages({ limit: 50 });
-
-      if (rawMessages.length === 0) {
-        syncLog(`${name} — empty, skipped`);
-        syncState.skipped++;
-        syncState.done++;
-        continue;
-      }
-
-      const structured = rawMessages
-        .map(m => toStructuredEntry(m, name))
-        .filter(Boolean);
-
-      if (structured.length === 0) {
-        // Messages were fetched but none were recognizable content
-        // (pure notifications/system events) — nothing useful to import.
-        syncLog(`${name} — no usable content, skipped`);
-        syncState.skipped++;
-        syncState.done++;
-        continue;
-      }
-
-      const res = await fetch(`${BACKEND_URL}/api/upload/import-messages`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Bridge-Secret': BRIDGE_SECRET },
-        body:    JSON.stringify({ chat_name: name, category, workspace_id: workspaceId, messages: structured }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const result = await res.json();
-
-      // Populate the in-memory inbox thread too — upload-messages only feeds
-      // the knowledge base, it doesn't touch conversations, so without this
-      // the contact shows up in the inbox with an empty thread.
-      const conv = conversations.get(phone);
-      if (conv) {
-        conv.messages = structured.slice(-30).map(m => ({
-          role:      m.sender === 'Me' ? 'agent' : 'customer',
-          content:   m.body,
-          timestamp: new Date(m.timestamp * 1000).toISOString(),
-        }));
-        conv.updatedAt = conv.messages.length
-          ? conv.messages[conv.messages.length - 1].timestamp
-          : conv.updatedAt;
-      }
-
-      syncLog(`${name} — ✓ ${structured.length} msgs → job #${result.job_id}`);
+    if (result.status === 'ok') {
+      syncLog(`${result.name} — ✓ ${result.messageCount} msgs → job #${result.jobId}`);
       syncState.done++;
-    } catch (e) {
-      syncLog(`${name} — ✗ ${e.message}`);
+    } else if (result.status === 'empty') {
+      syncLog(`${result.name} — empty, skipped`);
+      syncState.skipped++;
+      syncState.done++;
+    } else {
+      syncLog(`${result.name} — ✗ ${result.error}`);
       syncState.failed++;
       syncState.done++;
     }
@@ -411,7 +450,7 @@ client.on('message', async msg => {
   if (msg.from === 'status@broadcast') return;
   if (msg.from.endsWith('@g.us')) return; // skip groups for now
 
-  const phone   = msg.from.replace('@c.us', '');
+  const phone   = msg.from.replace(/@.*$/, '');
   const contact = await msg.getContact();
   const name    = contact.pushname || contact.name || phone;
 
@@ -622,6 +661,29 @@ app.get('/sync/chats', async (req, res) => {
   }
 });
 
+// Import a single chat by phone — used by the Contacts page's "Add to chat" button
+app.post('/sync/chat', async (req, res) => {
+  if (!isConnected) return res.status(503).json({ error: 'Not connected to WhatsApp' });
+  const phone    = req.body.phone;
+  const category = req.body.category || 'other';
+  if (!phone) return res.status(400).json({ error: 'phone is required' });
+
+  try {
+    const chats = await client.getChats();
+    const chat = chats.find(c => c.id.user === phone);
+    if (!chat) return res.status(404).json({ error: 'Chat not found for this phone' });
+
+    const workspaceId = await getWorkspaceId();
+    const result = await importOneChat(chat, category, workspaceId);
+
+    if (result.status === 'error') return res.status(502).json({ error: result.error });
+    if (result.status === 'empty') return res.status(422).json({ error: 'This chat has no importable messages' });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/sync/start', async (req, res) => {
   if (syncState.running) return res.status(409).json({ error: 'Sync already running' });
   if (!isConnected)      return res.status(503).json({ error: 'Not connected to WhatsApp' });
@@ -655,7 +717,9 @@ app.post('/send', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`[bridge] HTTP server on port ${PORT}`);
+  const workspaceId = await getWorkspaceId();
+  await rehydrateInbox(workspaceId);
   client.initialize();
 });

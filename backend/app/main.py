@@ -23,6 +23,8 @@ async def lifespan(app: FastAPI):
         conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"))
         conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS notes TEXT"))
         conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags TEXT[]"))
+        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS phone VARCHAR(50)"))
+        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT FALSE"))
         conn.commit()
 
     db = SessionLocal()

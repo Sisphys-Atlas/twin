@@ -168,6 +168,8 @@ class StructuredMessageIn(BaseModel):
 
 class ImportMessagesRequest(BaseModel):
     chat_name: str
+    phone: str | None = None
+    is_group: bool = False
     workspace_id: int | None = None
     category: str = "other"
     messages: list[StructuredMessageIn] = []
@@ -190,26 +192,47 @@ async def import_messages(
 
     original_filename = f"{req.chat_name}.txt"
 
-    # Delete any existing record for this chat so re-syncs replace instead of duplicate
+    # Reuse the existing Chat row on re-sync instead of delete+recreate — the
+    # row's id must stay stable across re-syncs, since ContactAppearance is
+    # keyed by chat_id. Deleting and recreating made every re-sync look like
+    # a brand new chat to extract_contacts, permanently inflating chat_count.
+    chat = None
     if req.workspace_id:
-        old = db.query(Chat).filter(
-            Chat.workspace_id == req.workspace_id,
-            Chat.original_filename == original_filename,
-        ).first()
-        if old:
-            db.delete(old)
-            db.commit()
+        q = db.query(Chat).filter(Chat.workspace_id == req.workspace_id)
+        if req.phone:
+            chat = q.filter(Chat.phone == req.phone).first()
+        if chat is None:
+            # Phone didn't match (or wasn't provided) — WhatsApp's LID can
+            # rotate between sessions for the same real contact, so always
+            # fall back to matching by name rather than giving up.
+            chat = q.filter(Chat.original_filename == original_filename).first()
 
-    chat = Chat(
-        filename=original_filename,
-        original_filename=original_filename,
-        workspace_id=req.workspace_id,
-        category=category,
-        status="pending",
-    )
-    db.add(chat)
-    db.commit()
-    db.refresh(chat)
+    if chat is not None:
+        # Clear old messages/threads (cascade-safe) but keep the same chat id
+        # and its existing ContactAppearance/Contact links intact.
+        db.query(Message).filter(Message.chat_id == chat.id).delete()
+        db.query(Thread).filter(Thread.chat_id == chat.id).delete()
+        chat.filename = original_filename
+        chat.original_filename = original_filename
+        chat.phone = req.phone
+        chat.is_group = req.is_group
+        chat.category = category
+        chat.status = "pending"
+        chat.message_count = 0
+        db.commit()
+    else:
+        chat = Chat(
+            filename=original_filename,
+            original_filename=original_filename,
+            phone=req.phone,
+            is_group=req.is_group,
+            workspace_id=req.workspace_id,
+            category=category,
+            status="pending",
+        )
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
 
     structured = [m.model_dump() for m in req.messages]
     background_tasks.add_task(_process_chat, chat.id, None, req.workspace_id, structured)
