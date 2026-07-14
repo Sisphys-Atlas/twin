@@ -144,6 +144,7 @@ class Contact(Base):
 
     id:            Mapped[int]             = mapped_column(primary_key=True)
     workspace_id:  Mapped[int]             = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    phone:         Mapped[Optional[str]]   = mapped_column(String(50), index=True)
     display_name:  Mapped[str]             = mapped_column(String(255))
     message_count: Mapped[int]             = mapped_column(default=0)
     chat_count:    Mapped[int]             = mapped_column(default=0)

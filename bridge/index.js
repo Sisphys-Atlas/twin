@@ -5,6 +5,8 @@ const express        = require('express');
 const cors           = require('cors');
 const fetch          = require('node-fetch');
 const FormData       = require('form-data');
+const fs             = require('fs');
+const path           = require('path');
 
 const BACKEND_URL    = process.env.BACKEND_URL    || 'http://localhost:8000';
 const PORT           = process.env.BRIDGE_PORT    || 3001;
@@ -13,6 +15,38 @@ const DAILY_LIMIT  = 40;
 const WARN_AT      = 30;
 const MIN_DELAY_MS = 5000;
 const MAX_DELAY_MS = 10000;
+
+// Shared storage — backend serves media from the same folder via /api/media
+const MEDIA_DIR = path.join(__dirname, '..', 'storage', 'media');
+fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+const MIME_EXT = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+  'audio/ogg': 'ogg', 'audio/ogg; codecs=opus': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac',
+  'video/mp4': 'mp4', 'video/3gpp': '3gp',
+  'application/pdf': 'pdf',
+};
+
+// Downloads a message's media (if any) and saves it to shared storage.
+// Returns the saved filename, or null if there's no media / download fails.
+// Safe to call repeatedly — skips re-writing if the file already exists.
+async function downloadMedia(msg) {
+  try {
+    const media = await msg.downloadMedia();
+    if (!media || !media.data) return null;
+    const mime = (media.mimetype || '').split(';')[0].trim();
+    const ext  = MIME_EXT[media.mimetype] || MIME_EXT[mime] || (mime.split('/')[1] || 'bin');
+    const filename = `${msg.id.id}.${ext}`;
+    const filePath = path.join(MEDIA_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
+    }
+    return filename;
+  } catch (e) {
+    console.error(`[bridge] media download failed for msg ${msg.id && msg.id.id}:`, e.message);
+    return null;
+  }
+}
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
@@ -208,8 +242,8 @@ async function runDemoSync() {
 // Convert a whatsapp-web.js Message into a plain structured entry for the
 // backend's JSON import endpoint. Non-text messages get a short, plain
 // placeholder (e.g. "audio", "image", "sticker") instead of a formatted
-// string — simpler, and the backend stores message_type separately anyway.
-function toStructuredEntry(msg, chatName) {
+// string, plus the actual downloaded media file when available.
+async function toStructuredEntry(msg, chatName) {
   if (!msg.timestamp) return null;
   const sender = msg.fromMe
     ? 'Me'
@@ -229,7 +263,12 @@ function toStructuredEntry(msg, chatName) {
 
   if (body === null) return null; // unrecognized/system-only message — skip
 
-  return { timestamp: msg.timestamp, sender, body, message_type: type };
+  let mediaFilename = null;
+  if (msg.hasMedia && type !== 'text') {
+    mediaFilename = await downloadMedia(msg);
+  }
+
+  return { timestamp: msg.timestamp, sender, body, message_type: type, media_filename: mediaFilename };
 }
 
 // ── Sync job — uploads chat history to the KB ──────────────────────────────
@@ -301,7 +340,11 @@ async function importOneChat(chat, category, workspaceId) {
       return { status: 'empty', name, phone };
     }
 
-    const structured = rawMessages.map(m => toStructuredEntry(m, name)).filter(Boolean);
+    const structured = [];
+    for (const m of rawMessages) {
+      const entry = await toStructuredEntry(m, name);
+      if (entry) structured.push(entry);
+    }
 
     if (structured.length === 0) {
       return { status: 'empty', name, phone };
@@ -324,6 +367,8 @@ async function importOneChat(chat, category, workspaceId) {
         role:      m.sender === 'Me' ? 'agent' : 'customer',
         content:   m.body,
         timestamp: new Date(m.timestamp * 1000).toISOString(),
+        mediaType: m.message_type !== 'text' ? m.message_type : null,
+        mediaUrl:  m.media_filename ? `/api/media/${m.media_filename}` : null,
       }));
       conv.updatedAt = conv.messages.length
         ? conv.messages[conv.messages.length - 1].timestamp
@@ -450,13 +495,21 @@ client.on('message', async msg => {
   if (msg.from === 'status@broadcast') return;
   if (msg.from.endsWith('@g.us')) return; // skip groups for now
 
-  const phone   = msg.from.replace(/@.*$/, '');
+  const phone = msg.from.replace(/@.*$/, '');
+
+  // Only show messages from contacts that have already been imported
+  // (bulk sync, "Add to chat", or restored on startup). A message from
+  // someone never imported is ignored entirely — no inbox entry, no draft.
+  if (!conversations.has(phone)) {
+    console.log(`[bridge] Message from non-imported contact ${phone} — ignoring`);
+    return;
+  }
+
   const contact = await msg.getContact();
   const name    = contact.pushname || contact.name || phone;
 
   seenSenders.add(phone);
 
-  if (!conversations.has(phone)) conversations.set(phone, mkConv(phone, name, msg.from));
   const conv = conversations.get(phone);
   conv.name   = name;
   conv.chatId = msg.from; // always use the actual serialized ID from the message

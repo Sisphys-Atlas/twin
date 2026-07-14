@@ -40,3 +40,4 @@ Thumbs.db
 .idea/
 *.iml
 .wwebjs_cache/
+.bridge-*.log
