@@ -14,10 +14,11 @@ from app.core.security import (
     get_current_user,
     hash_password,
     require_owner,
+    require_superadmin,
     verify_password,
 )
 from app.kb.database import get_db
-from app.kb.models import AuditLog, User
+from app.kb.models import AuditLog, Tenant, User, Workspace
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -35,6 +36,7 @@ class UserOut(BaseModel):
     role: str
     is_active: bool
     must_change_password: bool = False
+    tenant_id: int | None = None
     created_at: datetime
 
     class Config:
@@ -89,20 +91,26 @@ def logout(response: Response, _: User = Depends(get_current_user)):
 
 @router.get("/users")
 def list_users(
-    db:    Session = Depends(get_db),
-    owner: User    = Depends(require_owner),
+    db:   Session = Depends(get_db),
+    user: User    = Depends(require_owner),
 ) -> list[UserOut]:
-    return [UserOut.from_orm(u) for u in db.query(User).order_by(User.id).all()]
+    q = db.query(User)
+    if user.role != "superadmin":
+        q = q.filter(User.tenant_id == user.tenant_id)
+    return [UserOut.from_orm(u) for u in q.order_by(User.id).all()]
 
 
 @router.post("/users", status_code=201)
 def create_user(
-    req:   CreateUserRequest,
-    db:    Session = Depends(get_db),
-    owner: User    = Depends(require_owner),
+    req:  CreateUserRequest,
+    db:   Session = Depends(get_db),
+    user: User    = Depends(require_owner),
 ) -> UserOut:
-    if req.role not in ("owner", "assistant", "viewer"):
-        raise HTTPException(400, "role must be owner, assistant, or viewer")
+    if user.role == "superadmin":
+        raise HTTPException(400, "Use POST /api/auth/tenants to create new owners")
+
+    if req.role not in ("assistant", "viewer"):
+        raise HTTPException(400, "role must be assistant or viewer")
 
     if db.query(User).filter(User.username == req.username).first():
         raise HTTPException(400, "Username already exists")
@@ -111,13 +119,14 @@ def create_user(
         username=req.username,
         hashed_password=hash_password(req.password),
         role=req.role,
+        tenant_id=user.tenant_id,
         must_change_password=True,
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
-    db.add(AuditLog(user_id=owner.id, action="create_user", detail=f"Created {req.username} ({req.role})"))
+    db.add(AuditLog(user_id=user.id, action="create_user", detail=f"Created {req.username} ({req.role})"))
     db.commit()
 
     return UserOut.from_orm(new_user)
@@ -172,6 +181,91 @@ def change_password(
     user.must_change_password = False
     db.commit()
     return {"ok": True}
+
+
+# ── Tenant management (superadmin only) ───────────────────────────────────────
+
+class CreateTenantRequest(BaseModel):
+    tenant_name:    str
+    owner_username: str
+    owner_password: str
+
+
+class TenantOut(BaseModel):
+    id:             int
+    name:           str
+    owner_username: str
+    created_at:     datetime
+
+
+@router.get("/tenants")
+def list_tenants(
+    db: Session = Depends(get_db),
+    _:  User    = Depends(require_superadmin),
+) -> list[TenantOut]:
+    tenants = db.query(Tenant).order_by(Tenant.id).all()
+    result = []
+    for t in tenants:
+        owner = db.query(User).filter(User.tenant_id == t.id, User.role == "owner").first()
+        result.append(TenantOut(
+            id=t.id,
+            name=t.name,
+            owner_username=owner.username if owner else "—",
+            created_at=t.created_at,
+        ))
+    return result
+
+
+@router.post("/tenants", status_code=201)
+def create_tenant(
+    req: CreateTenantRequest,
+    db:  Session = Depends(get_db),
+    sa:  User    = Depends(require_superadmin),
+) -> TenantOut:
+    if db.query(User).filter(User.username == req.owner_username).first():
+        raise HTTPException(400, "Username already exists")
+
+    tenant = Tenant(name=req.tenant_name)
+    db.add(tenant)
+    db.flush()
+
+    owner = User(
+        username=req.owner_username,
+        hashed_password=hash_password(req.owner_password),
+        role="owner",
+        tenant_id=tenant.id,
+        must_change_password=True,
+    )
+    db.add(owner)
+
+    # Create default workspace for this tenant
+    max_port = db.query(Workspace).order_by(Workspace.bridge_port.desc()).first()
+    next_port = (max_port.bridge_port + 1) if max_port else 3001
+    db.add(Workspace(name="Main Number", bridge_port=next_port, tenant_id=tenant.id))
+
+    db.commit()
+    db.refresh(tenant)
+
+    db.add(AuditLog(user_id=sa.id, action="create_tenant", detail=f"Created tenant '{req.tenant_name}' owner={req.owner_username}"))
+    db.commit()
+
+    return TenantOut(id=tenant.id, name=tenant.name, owner_username=req.owner_username, created_at=tenant.created_at)
+
+
+@router.delete("/tenants/{tenant_id}", status_code=204)
+def delete_tenant(
+    tenant_id: int,
+    db: Session = Depends(get_db),
+    sa: User    = Depends(require_superadmin),
+):
+    if tenant_id == 1:
+        raise HTTPException(400, "Cannot delete the default tenant")
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant not found")
+    db.add(AuditLog(user_id=sa.id, action="delete_tenant", detail=f"Deleted tenant '{tenant.name}'"))
+    db.delete(tenant)
+    db.commit()
 
 
 @router.delete("/users/{user_id}", status_code=204)

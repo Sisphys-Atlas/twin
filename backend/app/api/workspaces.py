@@ -79,10 +79,13 @@ def _fmt_chat(c: Chat) -> dict:
 
 @router.get("/workspaces")
 def list_workspaces(
-    db: Session = Depends(get_db),
-    _:  User    = Depends(get_current_user),
+    db:   Session = Depends(get_db),
+    user: User    = Depends(get_current_user),
 ) -> list[dict]:
-    return [_fmt(ws, db) for ws in db.query(Workspace).order_by(Workspace.id).all()]
+    q = db.query(Workspace)
+    if user.role != "superadmin":
+        q = q.filter(Workspace.tenant_id == user.tenant_id)
+    return [_fmt(ws, db) for ws in q.order_by(Workspace.id).all()]
 
 
 @router.get("/workspace/default")
@@ -122,16 +125,16 @@ def get_workspace_by_port(
 
 @router.post("/workspaces", status_code=201)
 def create_workspace(
-    req: CreateWorkspaceRequest,
-    db:  Session = Depends(get_db),
-    _:   User    = Depends(require_owner),
+    req:  CreateWorkspaceRequest,
+    db:   Session = Depends(get_db),
+    user: User    = Depends(require_owner),
 ) -> dict:
     # Check port uniqueness
     existing = db.query(Workspace).filter(Workspace.bridge_port == req.bridge_port).first()
     if existing:
         raise HTTPException(400, f"Port {req.bridge_port} is already used by workspace \"{existing.name}\"")
 
-    ws = Workspace(name=req.name, bridge_port=req.bridge_port, phone_label=req.phone_label)
+    ws = Workspace(name=req.name, bridge_port=req.bridge_port, phone_label=req.phone_label, tenant_id=user.tenant_id)
     db.add(ws)
     db.commit()
     db.refresh(ws)
@@ -141,11 +144,14 @@ def create_workspace(
 @router.patch("/workspaces/{workspace_id}")
 def patch_workspace(
     workspace_id: int,
-    req: PatchWorkspaceRequest,
-    db:  Session = Depends(get_db),
-    _:   User    = Depends(require_owner),
+    req:  PatchWorkspaceRequest,
+    db:   Session = Depends(get_db),
+    user: User    = Depends(require_owner),
 ) -> dict:
-    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    q = db.query(Workspace).filter(Workspace.id == workspace_id)
+    if user.role != "superadmin":
+        q = q.filter(Workspace.tenant_id == user.tenant_id)
+    ws = q.first()
     if not ws:
         raise HTTPException(404, "Workspace not found")
 
@@ -168,14 +174,19 @@ def patch_workspace(
 @router.delete("/workspaces/{workspace_id}", status_code=204)
 def delete_workspace(
     workspace_id: int,
-    db:  Session = Depends(get_db),
-    _:   User    = Depends(require_owner),
+    db:   Session = Depends(get_db),
+    user: User    = Depends(require_owner),
 ):
-    if workspace_id == 1:
-        raise HTTPException(400, "Cannot delete the primary workspace")
-    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    q = db.query(Workspace).filter(Workspace.id == workspace_id)
+    if user.role != "superadmin":
+        q = q.filter(Workspace.tenant_id == user.tenant_id)
+    ws = q.first()
     if not ws:
         raise HTTPException(404, "Workspace not found")
+    # Prevent deleting the last workspace for this tenant
+    sibling_count = db.query(Workspace).filter(Workspace.tenant_id == ws.tenant_id).count()
+    if sibling_count <= 1:
+        raise HTTPException(400, "Cannot delete the last workspace")
     db.delete(ws)
     db.commit()
 

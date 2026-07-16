@@ -9,9 +9,10 @@
 export interface AuthUser {
   id: number;
   username: string;
-  role: "owner" | "assistant" | "viewer";
+  role: "superadmin" | "owner" | "assistant" | "viewer";
   is_active: boolean;
   must_change_password: boolean;
+  tenant_id: number | null;
   created_at: string;
 }
 

@@ -8,9 +8,16 @@ import { apiFetch, getUser } from "@/lib/auth";
 interface User {
   id:         number;
   username:   string;
-  role:       "owner" | "assistant" | "viewer";
+  role:       "superadmin" | "owner" | "assistant" | "viewer";
   is_active:  boolean;
   created_at: string;
+}
+
+interface Tenant {
+  id:             number;
+  name:           string;
+  owner_username: string;
+  created_at:     string;
 }
 
 interface Workspace {
@@ -23,9 +30,10 @@ interface Workspace {
 }
 
 const ROLE_COLORS: Record<string, string> = {
-  owner:     "#22c55e",
-  assistant: "#3b82f6",
-  viewer:    "#71717a",
+  superadmin: "#f59e0b",
+  owner:      "#22c55e",
+  assistant:  "#3b82f6",
+  viewer:     "#71717a",
 };
 
 const S = {
@@ -65,14 +73,59 @@ export default function UsersPage() {
   const [addError,    setAddError]    = useState("");
   const [addLoading,  setAddLoading]  = useState(false);
 
+  // Superadmin — tenant management
+  const [tenants,       setTenants]       = useState<Tenant[]>([]);
+  const [tenantsLoading,setTenantsLoading]= useState(false);
+  const [showAddTenant, setShowAddTenant] = useState(false);
+  const [tName,         setTName]         = useState("");
+  const [tOwner,        setTOwner]        = useState("");
+  const [tPass,         setTPass]         = useState("");
+  const [tAddError,     setTAddError]     = useState("");
+  const [tAddLoading,   setTAddLoading]   = useState(false);
+
+  const isSuperadmin = me?.role === "superadmin";
+
   useEffect(() => {
-    if (!me || me.role !== "owner") { router.replace("/agent"); return; }
+    if (!me || (me.role !== "owner" && me.role !== "superadmin")) { router.replace("/agent"); return; }
+    if (isSuperadmin) { loadTenants(); return; }
     loadUsers();
     loadWorkspaces();
     if (window.location.hash === "#numbers") {
       setTimeout(() => numbersRef.current?.scrollIntoView({ behavior: "smooth" }), 300);
     }
   }, []);
+
+  async function loadTenants() {
+    setTenantsLoading(true);
+    try {
+      const res = await apiFetch("/api/auth/tenants");
+      if (res.ok) setTenants(await res.json());
+    } catch {}
+    setTenantsLoading(false);
+  }
+
+  async function handleAddTenant(e: React.FormEvent) {
+    e.preventDefault();
+    setTAddError("");
+    setTAddLoading(true);
+    try {
+      const res = await apiFetch("/api/auth/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenant_name: tName, owner_username: tOwner, owner_password: tPass }),
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as any).detail || "Failed"); }
+      setTName(""); setTOwner(""); setTPass(""); setShowAddTenant(false);
+      loadTenants();
+    } catch (e: any) { setTAddError(e.message); }
+    finally { setTAddLoading(false); }
+  }
+
+  async function deleteTenant(t: Tenant) {
+    if (!confirm(`Delete client "${t.name}"? This will delete all their data permanently.`)) return;
+    await apiFetch(`/api/auth/tenants/${t.id}`, { method: "DELETE" });
+    loadTenants();
+  }
 
   async function loadUsers() {
     setLoading(true);
@@ -155,6 +208,82 @@ export default function UsersPage() {
     finally { setAddLoading(false); }
   }
 
+  // ── Superadmin view ────────────────────────────────────────────────────────────
+  if (isSuperadmin) return (
+    <div style={{ height: "100vh", display: "flex", background: "#09090b", overflow: "hidden" }}>
+      <Sidebar />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ height: 52, background: "#111113", borderBottom: "1px solid #1f1f23", padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <h1 style={{ fontSize: 16, fontWeight: 600, color: "#fafaf9" }}>Client Management</h1>
+          <button onClick={() => setShowAddTenant(v => !v)} style={S.addBtn}>+ Add Client</button>
+        </div>
+        <main style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
+          <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+
+            {showAddTenant && (
+              <div style={S.card}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#52525b", marginBottom: 16, textTransform: "uppercase", letterSpacing: "0.08em" }}>New client</div>
+                <form onSubmit={handleAddTenant} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div>
+                    <label style={S.label}>Company name</label>
+                    <input value={tName} onChange={e => setTName(e.target.value)} required placeholder="Acme Corp" style={S.input}
+                      onFocus={e => (e.target.style.borderColor = "#22c55e")} onBlur={e => (e.target.style.borderColor = "#27272a")} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Owner username</label>
+                    <input value={tOwner} onChange={e => setTOwner(e.target.value)} required placeholder="acme_admin" style={S.input}
+                      onFocus={e => (e.target.style.borderColor = "#22c55e")} onBlur={e => (e.target.style.borderColor = "#27272a")} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Temp password</label>
+                    <input value={tPass} onChange={e => setTPass(e.target.value)} required placeholder="••••••••" style={S.input}
+                      onFocus={e => (e.target.style.borderColor = "#22c55e")} onBlur={e => (e.target.style.borderColor = "#27272a")} />
+                  </div>
+                  <button type="submit" disabled={tAddLoading} style={S.addBtn}>{tAddLoading ? "Creating…" : "Create"}</button>
+                  <button type="button" onClick={() => setShowAddTenant(false)} style={S.cancelBtn}>Cancel</button>
+                  {tAddError && <div style={S.errMsg}>{tAddError}</div>}
+                </form>
+                <div style={{ marginTop: 10, fontSize: 12, color: "#3f3f46" }}>The owner will be prompted to change their password on first login.</div>
+              </div>
+            )}
+
+            <div style={S.card}>
+              {tenantsLoading ? (
+                <div style={{ color: "#52525b", fontSize: 13 }}>Loading…</div>
+              ) : tenants.length === 0 ? (
+                <div style={{ color: "#52525b", fontSize: 13 }}>No clients yet. Click "+ Add Client" to create one.</div>
+              ) : (
+                <table style={S.table}>
+                  <thead>
+                    <tr>{["Company", "Owner", "Created", "Actions"].map(h => <th key={h} style={S.th}>{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {tenants.map(t => (
+                      <tr key={t.id}>
+                        <td style={S.td}><span style={{ fontWeight: 600, color: "#fafaf9" }}>{t.name}</span></td>
+                        <td style={S.td}><span style={{ color: ROLE_COLORS.owner, fontWeight: 600 }}>{t.owner_username}</span></td>
+                        <td style={{ ...S.td, fontSize: 12, color: "#52525b" }}>{new Date(t.created_at).toLocaleDateString()}</td>
+                        <td style={S.td}>
+                          {t.id !== 1 && (
+                            <button onClick={() => deleteTenant(t)} style={{ ...S.actionBtn, color: "#f87171" }}
+                              onMouseEnter={e => (e.currentTarget.style.borderColor = "#f87171")}
+                              onMouseLeave={e => (e.currentTarget.style.borderColor = "#27272a")}
+                            >Delete</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+
+  // ── Owner view ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ height: "100vh", display: "flex", background: "#09090b", overflow: "hidden" }}>
       <Sidebar />

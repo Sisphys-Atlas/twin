@@ -8,7 +8,7 @@ from sqlalchemy import text
 from app.api import agent, analytics, auth, chat, contacts, search, status, style, upload, whatsapp, workspaces
 from app.core.security import hash_password
 from app.kb.database import SessionLocal, engine
-from app.kb.models import Base, User, Workspace
+from app.kb.models import Base, Tenant, User, Workspace
 
 
 @asynccontextmanager
@@ -27,19 +27,44 @@ async def lifespan(app: FastAPI):
         conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS phone VARCHAR(50)"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE"))
+        conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE"))
         conn.commit()
 
     db = SessionLocal()
     try:
-        if not db.query(Workspace).first():
-            db.add(Workspace(name="Main Number", bridge_port=3001))
+        # Ensure default tenant exists
+        tenant = db.query(Tenant).filter(Tenant.id == 1).first()
+        if not tenant:
+            tenant = Tenant(id=1, name="Default")
+            db.add(tenant)
             db.commit()
 
-        if not db.query(User).first():
+        # Migrate existing users and workspaces to tenant 1
+        db.execute(text("UPDATE users SET tenant_id = 1 WHERE tenant_id IS NULL AND role != 'superadmin'"))
+        db.execute(text("UPDATE workspaces SET tenant_id = 1 WHERE tenant_id IS NULL"))
+        db.commit()
+
+        if not db.query(Workspace).first():
+            db.add(Workspace(name="Main Number", bridge_port=3001, tenant_id=1))
+            db.commit()
+
+        if not db.query(User).filter(User.role == "superadmin").first():
+            db.add(User(
+                username="platform",
+                hashed_password=hash_password("platform2026"),
+                role="superadmin",
+                tenant_id=None,
+            ))
+            db.commit()
+            print("[auth] Superadmin created: platform / platform2026 — change this password!")
+
+        if not db.query(User).filter(User.role == "owner").first():
             db.add(User(
                 username="admin",
                 hashed_password=hash_password("twin2026"),
                 role="owner",
+                tenant_id=1,
             ))
             db.commit()
             print("[auth] Default owner created: admin / twin2026 — change this password!")

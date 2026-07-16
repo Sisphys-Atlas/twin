@@ -159,6 +159,12 @@ def require_assistant(user: User = Depends(get_current_user)) -> User:
 
 
 def require_owner(user: User = Depends(get_current_user)) -> User:
-    if user.role != "owner":
+    if user.role not in ("owner", "superadmin"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Owner access required")
+    return user
+
+
+def require_superadmin(user: User = Depends(get_current_user)) -> User:
+    if user.role != "superadmin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Superadmin access required")
     return user

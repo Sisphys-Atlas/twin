@@ -24,18 +24,31 @@ message_entities = Table(
 )
 
 
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id:         Mapped[int]      = mapped_column(primary_key=True)
+    name:       Mapped[str]      = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    users:      Mapped[list["User"]]      = relationship(back_populates="tenant")
+    workspaces: Mapped[list["Workspace"]] = relationship(back_populates="tenant")
+
+
 class User(Base):
     __tablename__ = "users"
 
-    id:                  Mapped[int]  = mapped_column(primary_key=True)
-    username:            Mapped[str]  = mapped_column(String(100), unique=True, nullable=False)
-    hashed_password:     Mapped[str]  = mapped_column(String(256), nullable=False)
-    role:                Mapped[str]  = mapped_column(String(20), default="assistant")  # owner / assistant / viewer
-    is_active:           Mapped[bool] = mapped_column(Boolean, default=True)
-    must_change_password:Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at:          Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    id:                   Mapped[int]           = mapped_column(primary_key=True)
+    username:             Mapped[str]           = mapped_column(String(100), unique=True, nullable=False)
+    hashed_password:      Mapped[str]           = mapped_column(String(256), nullable=False)
+    role:                 Mapped[str]           = mapped_column(String(20), default="assistant")  # superadmin / owner / assistant / viewer
+    is_active:            Mapped[bool]          = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool]          = mapped_column(Boolean, default=False)
+    tenant_id:            Mapped[Optional[int]] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True)
+    created_at:           Mapped[datetime]      = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
-    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    tenant:     Mapped[Optional["Tenant"]]  = relationship(back_populates="users")
+    audit_logs: Mapped[list["AuditLog"]]   = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class AuditLog(Base):
@@ -56,11 +69,13 @@ class Workspace(Base):
     id:          Mapped[int]           = mapped_column(primary_key=True)
     name:        Mapped[str]           = mapped_column(String(255), default="My Workspace")
     bridge_port: Mapped[int]           = mapped_column(Integer, default=3001)
-    phone_label: Mapped[Optional[str]] = mapped_column(String(50))   # e.g. "+212 6XX XXX XXX"
+    phone_label: Mapped[Optional[str]] = mapped_column(String(50))
+    tenant_id:   Mapped[Optional[int]] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True)
     created_at:  Mapped[datetime]      = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
-    chats:    Mapped[list["Chat"]]    = relationship(back_populates="workspace")
-    contacts: Mapped[list["Contact"]] = relationship(back_populates="workspace", cascade="all, delete-orphan")
+    tenant:   Mapped[Optional["Tenant"]] = relationship(back_populates="workspaces")
+    chats:    Mapped[list["Chat"]]       = relationship(back_populates="workspace")
+    contacts: Mapped[list["Contact"]]    = relationship(back_populates="workspace", cascade="all, delete-orphan")
 
 
 class Chat(Base):
