@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
         conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS phone VARCHAR(50)"))
         conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS phone VARCHAR(50)"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE"))
         conn.commit()
 
     db = SessionLocal()

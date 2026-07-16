@@ -26,8 +26,12 @@ function LoginForm() {
     setError("");
     setLoading(true);
     try {
-      await login(username, password);
-      router.replace(next);
+      const user = await login(username, password);
+      if (user.must_change_password) {
+        router.replace("/change-password");
+      } else {
+        router.replace(next);
+      }
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {

@@ -34,6 +34,7 @@ class UserOut(BaseModel):
     username: str
     role: str
     is_active: bool
+    must_change_password: bool = False
     created_at: datetime
 
     class Config:
@@ -110,6 +111,7 @@ def create_user(
         username=req.username,
         hashed_password=hash_password(req.password),
         role=req.role,
+        must_change_password=True,
     )
     db.add(new_user)
     db.commit()
@@ -152,6 +154,24 @@ def patch_user(
     db.commit()
 
     return UserOut.from_orm(target)
+
+
+class ChangePasswordRequest(BaseModel):
+    new_password: str
+
+
+@router.post("/change-password")
+def change_password(
+    req: ChangePasswordRequest,
+    db:  Session = Depends(get_db),
+    user: User   = Depends(get_current_user),
+):
+    if len(req.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    user.hashed_password = hash_password(req.new_password)
+    user.must_change_password = False
+    db.commit()
+    return {"ok": True}
 
 
 @router.delete("/users/{user_id}", status_code=204)

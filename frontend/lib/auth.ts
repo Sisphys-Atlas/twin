@@ -11,6 +11,7 @@ export interface AuthUser {
   username: string;
   role: "owner" | "assistant" | "viewer";
   is_active: boolean;
+  must_change_password: boolean;
   created_at: string;
 }
 
