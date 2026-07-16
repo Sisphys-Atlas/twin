@@ -179,7 +179,7 @@ export default function Sidebar() {
           );
         })}
 
-        {user?.role === "owner" && (
+        {(user?.role === "owner" || user?.role === "superadmin") && (
           <Link href="/users" style={{
             display: "flex", alignItems: "center", gap: 9,
             padding: "8px 10px", borderRadius: 7,
@@ -192,7 +192,7 @@ export default function Sidebar() {
             onMouseLeave={e => { if (!isActive("/users")) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#71717a"; } }}
           >
             <IconUsers active={isActive("/users")} />
-            Users
+            {user?.role === "superadmin" ? "Clients" : "Users"}
             {isActive("/users") && (
               <div style={{ marginLeft: "auto", width: 5, height: 5, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
             )}
