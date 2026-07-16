@@ -34,15 +34,16 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         # Ensure default tenant exists
-        tenant = db.query(Tenant).filter(Tenant.id == 1).first()
+        tenant = db.query(Tenant).first()
         if not tenant:
-            tenant = Tenant(id=1, name="Default")
+            tenant = Tenant(name="Default")
             db.add(tenant)
             db.commit()
+            db.refresh(tenant)
 
-        # Migrate existing users and workspaces to tenant 1
-        db.execute(text("UPDATE users SET tenant_id = 1 WHERE tenant_id IS NULL AND role != 'superadmin'"))
-        db.execute(text("UPDATE workspaces SET tenant_id = 1 WHERE tenant_id IS NULL"))
+        # Migrate existing users and workspaces to the default tenant
+        db.execute(text(f"UPDATE users SET tenant_id = {tenant.id} WHERE tenant_id IS NULL AND role != 'superadmin'"))
+        db.execute(text(f"UPDATE workspaces SET tenant_id = {tenant.id} WHERE tenant_id IS NULL"))
         db.commit()
 
         if not db.query(Workspace).first():
