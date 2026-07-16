@@ -31,8 +31,8 @@ class Tenant(Base):
     name:       Mapped[str]      = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
-    users:      Mapped[list["User"]]      = relationship(back_populates="tenant")
-    workspaces: Mapped[list["Workspace"]] = relationship(back_populates="tenant")
+    users:      Mapped[list["User"]]      = relationship(back_populates="tenant", passive_deletes=True)
+    workspaces: Mapped[list["Workspace"]] = relationship(back_populates="tenant", passive_deletes=True)
 
 
 class User(Base):
