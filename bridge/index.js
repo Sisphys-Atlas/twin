@@ -518,7 +518,9 @@ if (WORKSPACE_ID != null) {
 
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth', clientId: CLIENT_ID }),
-  puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
+  // protocolTimeout: getChats' in-page evaluation can exceed puppeteer's
+  // 180s default on a small VM with many chats — give it 10 minutes
+  puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'], protocolTimeout: 600000 },
   restartOnAuthFail: true,
   takeoverOnConflict: true,
   takeoverTimeoutMs: 10000,
