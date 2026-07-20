@@ -60,6 +60,7 @@ let qrDataUrl    = null;
 let isConnected  = false;
 let phoneInfo    = null;
 let initStarted  = false; // true once client.initialize() has been called
+let initError    = null;  // last initialization failure, surfaced to the UI
 let dailySent    = 0;
 let lastSendAt   = 0;
 let resetDate    = new Date().toDateString();
@@ -525,11 +526,13 @@ const client = new Client({
 client.on('qr', async qr => {
   qrcodeTerminal.generate(qr, { small: true });
   qrDataUrl = await QRCode.toDataURL(qr);
+  initError = null;
   console.log('[bridge] QR ready — scan with WhatsApp');
 });
 
 client.on('authenticated', () => {
   qrDataUrl = null;
+  initError = null;
   console.log('[bridge] Authenticated');
 });
 
@@ -728,6 +731,8 @@ app.get('/status', (req, res) => {
     connected:    isConnected,
     qr:           qrDataUrl,
     waiting:      !initStarted, // idle — no QR until POST /connect
+    booting:      initStarted && !isConnected && !qrDataUrl, // Chrome starting up — QR not ready yet
+    init_error:   initError,
     workspace_id: WORKSPACE_ID, // self-identification — backend verifies this matches
     port:         Number(PORT),
     phone:        phoneInfo,
@@ -966,10 +971,12 @@ app.post('/send', async (req, res) => {
 function startClient() {
   if (initStarted) return;
   initStarted = true;
+  initError   = null;
   client.initialize().catch(async e => {
     console.error('[bridge] Init error (will retry in 5s):', e.message);
+    initError = e.message;
     try { await client.destroy(); } catch {}
-    setTimeout(() => client.initialize().catch(() => { initStarted = false; }), 5000);
+    setTimeout(() => client.initialize().catch(err => { initStarted = false; initError = err.message; }), 5000);
   });
 }
 

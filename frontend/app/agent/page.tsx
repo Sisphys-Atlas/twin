@@ -9,6 +9,9 @@ import { apiFetch, getUser } from "@/lib/auth";
 interface BridgeStatus {
   connected: boolean;
   qr: string | null;
+  waiting?: boolean;         // bridge idle — client not started yet
+  booting?: boolean;         // browser starting — QR not ready yet
+  init_error?: string | null;
   phone: { number: string; name: string } | null;
   daily_sent: number;
   daily_limit: number;
@@ -293,6 +296,15 @@ export default function AgentPage() {
     const t2 = setInterval(pollConversations, 3000);
     return () => { clearInterval(t1); clearInterval(t2); if (syncPollRef.current) clearInterval(syncPollRef.current); };
   }, [pollStatus, pollConversations, pollSync, loadStyleProfile]);
+
+  // While the QR modal is open, poll fast (2s) so the code appears the moment
+  // it's generated and rotates promptly — WhatsApp expires QRs every ~20s and
+  // scanning a stale one fails on the phone.
+  useEffect(() => {
+    if (!showQR) return;
+    const t = setInterval(pollStatus, 2000);
+    return () => clearInterval(t);
+  }, [showQR, pollStatus]);
 
   // While the QR modal is open, poll faster — a freshly auto-started bridge
   // (fresh Puppeteer/Chrome boot) can take several seconds to produce a QR,
@@ -631,8 +643,23 @@ export default function AgentPage() {
               <h2 style={{ fontSize: 18, fontWeight: 600, color: "#fafaf9", marginBottom: 6 }}>Connect WhatsApp</h2>
               <p style={{ fontSize: 13, color: "#52525b", marginBottom: 24 }}>Open WhatsApp on your phone and scan the QR code</p>
               {bridgeStatus?.qr ? (
-                <div style={{ display: "inline-block", background: "#fff", borderRadius: 10, padding: 12 }}>
-                  <img src={bridgeStatus.qr} alt="QR" style={{ width: 200, height: 200, display: "block" }} />
+                <>
+                  <div style={{ display: "inline-block", background: "#fff", borderRadius: 10, padding: 12 }}>
+                    <img src={bridgeStatus.qr} alt="QR" style={{ width: 200, height: 200, display: "block" }} />
+                  </div>
+                  <p style={{ fontSize: 11, color: "#52525b", marginTop: 14, lineHeight: 1.6 }}>
+                    Scan promptly — the code refreshes automatically every ~20 seconds.<br />
+                    If your phone says it can't link, wait 30–60 minutes and try once — repeated attempts make it worse.
+                  </p>
+                </>
+              ) : bridgeStatus?.init_error ? (
+                <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ textAlign: "center", padding: "0 8px" }}>
+                    <div style={{ fontSize: 20, marginBottom: 10 }}>⚠️</div>
+                    <span style={{ color: "#f87171", fontSize: 13, lineHeight: 1.5, display: "block" }}>
+                      Browser failed to start — retrying automatically. Keep this window open.
+                    </span>
+                  </div>
                 </div>
               ) : bridgeStatus?.error && !bridgeStatus.error.includes("Starting bridge") ? (
                 <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -643,9 +670,13 @@ export default function AgentPage() {
                 </div>
               ) : (
                 <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <div style={{ textAlign: "center" }}>
+                  <div style={{ textAlign: "center", padding: "0 8px" }}>
                     <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #27272a", borderTopColor: "#22c55e", margin: "0 auto 12px" }} className="kb-spin" />
-                    <span style={{ color: "#52525b", fontSize: 13 }}>{bridgeStatus?.error || "Waiting for QR code…"}</span>
+                    <span style={{ color: "#52525b", fontSize: 13, lineHeight: 1.5 }}>
+                      {bridgeStatus?.booting
+                        ? "Starting WhatsApp browser — this usually takes 30–60 seconds…"
+                        : bridgeStatus?.error || "Requesting connection…"}
+                    </span>
                   </div>
                 </div>
               )}
