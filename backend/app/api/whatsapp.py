@@ -28,23 +28,37 @@ def _bridge_url_for_port(port: int) -> str:
     return f"http://localhost:{port}"
 
 
-def get_bridge_url(request: Request, db: Session = Depends(get_db)) -> str:
-    """FastAPI dependency — resolves bridge URL from X-Workspace-ID header."""
+def get_workspace(request: Request, db: Session = Depends(get_db)) -> Workspace | None:
+    """Resolve the workspace from the X-Workspace-ID header, ENFORCING tenant
+    ownership. A header pointing at another tenant's workspace (or the old
+    default of 1) silently resolves to the caller's own first workspace —
+    a client must never reach someone else's bridge, whatever they send."""
+    user = get_current_user(request, db)  # 401 if not logged in
+
     try:
-        ws_id = int(request.headers.get("X-Workspace-ID", "1"))
+        ws_id = int(request.headers.get("X-Workspace-ID", "0"))
     except ValueError:
-        ws_id = 1
-    ws = db.query(Workspace).filter(Workspace.id == ws_id).first()
+        ws_id = 0
+
+    scoped = db.query(Workspace)
+    if user.role != "superadmin":
+        scoped = scoped.filter(Workspace.tenant_id == user.tenant_id)
+
+    ws = scoped.filter(Workspace.id == ws_id).first() if ws_id else None
+    if ws is None:
+        # Fall back to the caller's own first workspace — never a global default
+        fallback = db.query(Workspace)
+        if user.role != "superadmin":
+            fallback = fallback.filter(Workspace.tenant_id == user.tenant_id)
+        ws = fallback.order_by(Workspace.id).first()
+    return ws
+
+
+def get_bridge_url(request: Request, db: Session = Depends(get_db)) -> str:
+    """FastAPI dependency — tenant-scoped bridge URL resolution."""
+    ws = get_workspace(request, db)
     port = ws.bridge_port if ws else _DEFAULT_BRIDGE_PORT
     return _bridge_url_for_port(port)
-
-
-def get_workspace(request: Request, db: Session = Depends(get_db)) -> Workspace | None:
-    try:
-        ws_id = int(request.headers.get("X-Workspace-ID", "1"))
-    except ValueError:
-        ws_id = 1
-    return db.query(Workspace).filter(Workspace.id == ws_id).first()
 
 
 # ── Bridge auto-start ────────────────────────────────────────────────────────────
