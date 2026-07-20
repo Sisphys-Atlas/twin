@@ -11,6 +11,12 @@ const path           = require('path');
 const BACKEND_URL    = process.env.BACKEND_URL    || 'http://localhost:8000';
 const PORT           = process.env.BRIDGE_PORT    || 3001;
 const BRIDGE_SECRET  = process.env.BRIDGE_SECRET  || 'twin-bridge-default-change-me';
+
+// The backend hands us our workspace id at spawn time — the stable identity.
+// Sessions are keyed by it (session-ws-{id}), NOT by port: ports are transport
+// details that can be reshuffled, a workspace id never changes owner.
+const WORKSPACE_ID = process.env.WORKSPACE_ID ? Number(process.env.WORKSPACE_ID) : null;
+const CLIENT_ID    = WORKSPACE_ID != null ? `ws-${WORKSPACE_ID}` : `port-${PORT}`; // legacy fallback for manual runs
 const DAILY_LIMIT  = 40;
 const WARN_AT      = 30;
 const MIN_DELAY_MS = 5000;
@@ -306,6 +312,7 @@ async function persistMessages(phone, name, entries) {
 // ── Sync job — uploads chat history to the KB ──────────────────────────────
 
 async function getWorkspaceId() {
+  if (WORKSPACE_ID != null) return WORKSPACE_ID; // handed to us at spawn — no guessing
   try {
     const r = await fetch(`${BACKEND_URL}/api/workspace/by-port/${PORT}`, {
       headers: { 'X-Bridge-Secret': BRIDGE_SECRET },
@@ -491,8 +498,24 @@ async function sendMessage(phone, message) {
 
 // ── WhatsApp client ────────────────────────────────────────────────────────────
 
+// One-time migration: sessions used to be keyed by port. If a ws-keyed dir
+// doesn't exist yet but the old port-keyed one does, adopt it — an already
+// linked number keeps working without a re-scan.
+if (WORKSPACE_ID != null) {
+  const oldDir = path.join(__dirname, '.wwebjs_auth', `session-port-${PORT}`);
+  const newDir = path.join(__dirname, '.wwebjs_auth', `session-ws-${WORKSPACE_ID}`);
+  if (!fs.existsSync(newDir) && fs.existsSync(oldDir)) {
+    try {
+      fs.renameSync(oldDir, newDir);
+      console.log(`[bridge] migrated session: session-port-${PORT} -> session-ws-${WORKSPACE_ID}`);
+    } catch (e) {
+      console.error('[bridge] session migration failed:', e.message);
+    }
+  }
+}
+
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth', clientId: `port-${PORT}` }),
+  authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth', clientId: CLIENT_ID }),
   puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
   restartOnAuthFail: true,
   takeoverOnConflict: true,
@@ -669,6 +692,8 @@ app.get('/status', (req, res) => {
     connected:    isConnected,
     qr:           qrDataUrl,
     waiting:      !initStarted, // idle — no QR until POST /connect
+    workspace_id: WORKSPACE_ID, // self-identification — backend verifies this matches
+    port:         Number(PORT),
     phone:        phoneInfo,
     daily_sent:   dailySent,
     daily_limit:  DAILY_LIMIT,
@@ -918,7 +943,7 @@ app.listen(PORT, async () => {
   // Only auto-start if this number was linked before (session on disk) —
   // otherwise starting the client just spins an endless QR refresh loop.
   // A fresh number waits for POST /connect from the UI.
-  const sessionDir = path.join(__dirname, '.wwebjs_auth', `session-port-${PORT}`);
+  const sessionDir = path.join(__dirname, '.wwebjs_auth', `session-${CLIENT_ID}`);
   if (fs.existsSync(sessionDir)) {
     console.log('[bridge] Existing session found — reconnecting…');
     startClient();

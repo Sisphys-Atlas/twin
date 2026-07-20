@@ -95,10 +95,25 @@ async def lifespan(app: FastAPI):
     from app.config import settings as _settings
     burst_task = asyncio.create_task(_burst_loop()) if _settings.gemini_api_key else None
 
+    # Bridge fleet reconciler — DB is the registry: spawns a bridge per
+    # workspace, kills zombies (deleted/mismatched workspaces) every 30s
+    async def _reconcile_loop():
+        from app.api.whatsapp import reconcile_bridges
+        while True:
+            try:
+                await asyncio.to_thread(reconcile_bridges)
+            except Exception as e:
+                print(f"[whatsapp] reconciler error: {e}")
+            await asyncio.sleep(30)
+
+    reconcile_task = asyncio.create_task(_reconcile_loop()) if _settings.bridge_auto_start else None
+
     yield
 
     if burst_task:
         burst_task.cancel()
+    if reconcile_task:
+        reconcile_task.cancel()
 
 
 app = FastAPI(title="Twin", version="0.5.0", lifespan=lifespan)

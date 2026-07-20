@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.core.security import get_current_user, require_assistant, require_owner, verify_bridge_secret
+from app.core.security import get_current_user, require_assistant, require_owner, require_superadmin, verify_bridge_secret
 from app.kb.database import SessionLocal, get_db
 from app.kb.models import Chat, User, Workspace
 
@@ -67,6 +67,34 @@ def _resolve_bridge_dir() -> Path | None:
     return d if (d / "index.js").exists() else None
 
 
+def _kill_port(port: int) -> None:
+    """Best-effort: kill whatever process is listening on a local port."""
+    try:
+        if os.name == "nt":
+            r = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=10)
+            for line in r.stdout.splitlines():
+                if f":{port}" in line and "LISTENING" in line:
+                    subprocess.run(["taskkill", "/PID", line.split()[-1], "/F"], capture_output=True, timeout=10)
+        else:
+            subprocess.run(["fuser", "-k", f"{port}/tcp"], capture_output=True, timeout=10)
+    except Exception as e:
+        print(f"[whatsapp] port kill failed for {port}: {e}")
+
+
+def _probe_bridge(port: int) -> dict | None:
+    """Return the /status payload if a Twin bridge answers on this port,
+    else None. Identifies bridges by their status shape, so a random dev
+    server on the port isn't mistaken for one."""
+    try:
+        r = httpx.get(f"http://localhost:{port}/status", timeout=1.5)
+        d = r.json()
+        if isinstance(d, dict) and "connected" in d and "qr" in d:
+            return d
+    except Exception:
+        pass
+    return None
+
+
 def ensure_bridge_running(ws: Workspace | None) -> None:
     """Best-effort: spawn a bridge process for this workspace's port if one
     isn't already tracked as running. Non-blocking — caller should retry the
@@ -77,6 +105,11 @@ def ensure_bridge_running(ws: Workspace | None) -> None:
     proc = _bridge_processes.get(ws.id)
     if proc is not None and proc.poll() is None:
         return  # already running
+
+    # A bridge may already be listening that we didn't spawn (started before
+    # a backend restart, or run manually) — adopt it instead of colliding.
+    if _probe_bridge(ws.bridge_port) is not None:
+        return
 
     last = _bridge_last_spawn.get(ws.id, 0)
     if time.time() - last < _SPAWN_COOLDOWN_SECONDS:
@@ -95,7 +128,7 @@ def ensure_bridge_running(ws: Workspace | None) -> None:
     log_path = bridge_dir / f".bridge-{ws.bridge_port}.log"
     try:
         log_file = open(log_path, "a")
-        env = {**os.environ, "BRIDGE_PORT": str(ws.bridge_port)}
+        env = {**os.environ, "BRIDGE_PORT": str(ws.bridge_port), "WORKSPACE_ID": str(ws.id)}
         proc = subprocess.Popen(
             ["node", "index.js"],
             cwd=str(bridge_dir),
@@ -126,27 +159,91 @@ def teardown_workspace_bridge(ws: Workspace) -> None:
 
     # 2. Best-effort: kill anything else still listening on the port —
     #    bridges spawned before the last backend restart aren't tracked
-    try:
-        if os.name == "nt":
-            r = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=10)
-            for line in r.stdout.splitlines():
-                if f":{ws.bridge_port}" in line and "LISTENING" in line:
-                    subprocess.run(["taskkill", "/PID", line.split()[-1], "/F"], capture_output=True, timeout=10)
-        else:
-            subprocess.run(["fuser", "-k", f"{ws.bridge_port}/tcp"], capture_output=True, timeout=10)
-    except Exception as e:
-        print(f"[whatsapp] port kill failed for {ws.bridge_port}: {e}")
+    _kill_port(ws.bridge_port)
 
     # 3. Delete the WhatsApp session folder — the client's login credentials
+    #    (both naming schemes: ws-keyed current, port-keyed legacy)
     bridge_dir = _resolve_bridge_dir()
     if bridge_dir is not None:
-        session_dir = bridge_dir / ".wwebjs_auth" / f"session-port-{ws.bridge_port}"
-        if session_dir.exists():
-            try:
-                shutil.rmtree(session_dir)
-                print(f"[whatsapp] deleted WhatsApp session for port {ws.bridge_port}")
-            except Exception as e:
-                print(f"[whatsapp] session delete failed for port {ws.bridge_port}: {e}")
+        for name in (f"session-ws-{ws.id}", f"session-port-{ws.bridge_port}"):
+            session_dir = bridge_dir / ".wwebjs_auth" / name
+            if session_dir.exists():
+                try:
+                    shutil.rmtree(session_dir)
+                    print(f"[whatsapp] deleted WhatsApp session {name}")
+                except Exception as e:
+                    print(f"[whatsapp] session delete failed for {name}: {e}")
+
+
+def reconcile_bridges() -> None:
+    """Periodic fleet reconciliation — the DB is the registry of which bridges
+    should exist. Spawns missing ones, executes zombies (a bridge whose
+    workspace was deleted, or that serves a different workspace than the DB
+    maps to its port). Zombie session FILES are left on disk on purpose: a
+    linked session is hard to win back, and explicit workspace/tenant deletion
+    is the path that destroys files."""
+    if not settings.bridge_auto_start:
+        return
+
+    db = SessionLocal()
+    try:
+        workspaces = db.query(Workspace).all()
+    finally:
+        db.close()
+
+    by_port = {w.bridge_port: w for w in workspaces}
+
+    # 1) every workspace gets a bridge (idle bridges are cheap — no Chrome
+    #    until someone actually connects)
+    for w in workspaces:
+        try:
+            ensure_bridge_running(w)
+        except Exception as e:
+            print(f"[whatsapp] reconciler spawn failed for workspace {w.id}: {e}")
+
+    # 2) zombie hunt across the bridge port range
+    scan_max = (max(by_port) if by_port else _DEFAULT_BRIDGE_PORT) + 5
+    for port in range(_DEFAULT_BRIDGE_PORT, scan_max + 1):
+        status = _probe_bridge(port)
+        if status is None:
+            continue
+        ws = by_port.get(port)
+        reported = status.get("workspace_id")  # None on legacy bridges — trusted by port
+        if ws is None or (reported is not None and reported != ws.id):
+            print(f"[whatsapp] reconciler: killing zombie bridge on port {port} "
+                  f"(reports workspace {reported}, expected {ws.id if ws else 'none'})")
+            _kill_port(port)
+
+
+@router.get("/whatsapp/bridges")
+def whatsapp_bridges(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superadmin),
+) -> list[dict]:
+    """Fleet overview — one row per workspace with the live bridge state."""
+    out = []
+    for w in db.query(Workspace).order_by(Workspace.id).all():
+        status = _probe_bridge(w.bridge_port)
+        if status is None:
+            state, phone = "down", None
+        elif status.get("connected"):
+            state, phone = "connected", (status.get("phone") or {}).get("number")
+        elif status.get("qr"):
+            state, phone = "qr_waiting", None
+        elif status.get("waiting"):
+            state, phone = "idle", None
+        else:
+            state, phone = "starting", None
+        out.append({
+            "workspace_id": w.id,
+            "name":         w.name,
+            "tenant_id":    w.tenant_id,
+            "port":         w.bridge_port,
+            "state":        state,
+            "phone":        phone,
+            "identity_ok":  status is None or status.get("workspace_id") in (None, w.id),
+        })
+    return out
 
 
 # ── Bridge proxy helpers ────────────────────────────────────────────────────────
@@ -181,6 +278,10 @@ async def whatsapp_status(
     if data is None:
         ensure_bridge_running(ws)
         return {"connected": False, "qr": None, "error": "Starting bridge for this number…"}
+    # Identity check — never present a different workspace's bridge as ours.
+    # The reconciler will kill the misplaced bridge within its next pass.
+    if ws is not None and data.get("workspace_id") not in (None, ws.id):
+        return {"connected": False, "qr": None, "error": "Bridge mismatch for this number — fixing automatically, retry in a moment…"}
     return data
 
 
