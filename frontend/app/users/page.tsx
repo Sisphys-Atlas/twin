@@ -20,6 +20,24 @@ interface Tenant {
   created_at:     string;
 }
 
+interface Bridge {
+  workspace_id: number;
+  name:         string;
+  tenant_id:    number | null;
+  port:         number;
+  state:        "down" | "idle" | "qr_waiting" | "starting" | "connected";
+  phone:        string | null;
+  identity_ok:  boolean;
+}
+
+const BRIDGE_STATE: Record<string, { label: string; color: string }> = {
+  connected:  { label: "Connected",  color: "#22c55e" },
+  qr_waiting: { label: "QR waiting", color: "#f59e0b" },
+  starting:   { label: "Starting",   color: "#3b82f6" },
+  idle:       { label: "Idle",       color: "#71717a" },
+  down:       { label: "Down",       color: "#f87171" },
+};
+
 interface Workspace {
   id:          number;
   name:        string;
@@ -84,10 +102,16 @@ export default function UsersPage() {
   const [tAddLoading,   setTAddLoading]   = useState(false);
 
   const isSuperadmin = me?.role === "superadmin";
+  const [bridges, setBridges] = useState<Bridge[]>([]);
 
   useEffect(() => {
     if (!me || (me.role !== "owner" && me.role !== "superadmin")) { router.replace("/agent"); return; }
-    if (isSuperadmin) { loadTenants(); return; }
+    if (isSuperadmin) {
+      loadTenants();
+      loadBridges();
+      const t = setInterval(loadBridges, 10000);
+      return () => clearInterval(t);
+    }
     loadUsers();
     loadWorkspaces();
     if (window.location.hash === "#numbers") {
@@ -102,6 +126,13 @@ export default function UsersPage() {
       if (res.ok) setTenants(await res.json());
     } catch {}
     setTenantsLoading(false);
+  }
+
+  async function loadBridges() {
+    try {
+      const res = await apiFetch("/api/whatsapp/bridges");
+      if (res.ok) setBridges(await res.json());
+    } catch {}
   }
 
   async function handleAddTenant(e: React.FormEvent) {
@@ -273,6 +304,41 @@ export default function UsersPage() {
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Bridge fleet — live state of every workspace's WhatsApp bridge */}
+            <div style={S.card}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#52525b", marginBottom: 16, textTransform: "uppercase", letterSpacing: "0.08em" }}>Bridge fleet</div>
+              {bridges.length === 0 ? (
+                <div style={{ color: "#52525b", fontSize: 13 }}>No bridges yet.</div>
+              ) : (
+                <table style={S.table}>
+                  <thead>
+                    <tr>{["Client", "Workspace", "Port", "State", "Number"].map(h => <th key={h} style={S.th}>{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {bridges.map(b => {
+                      const st = BRIDGE_STATE[b.state] ?? BRIDGE_STATE.down;
+                      const clientName = tenants.find(t => t.id === b.tenant_id)?.name ?? (b.tenant_id ?? "—");
+                      return (
+                        <tr key={b.workspace_id}>
+                          <td style={S.td}>{clientName}</td>
+                          <td style={S.td}>{b.name}</td>
+                          <td style={{ ...S.td, fontFamily: "'Fira Code', monospace", fontSize: 12 }}>{b.port}</td>
+                          <td style={S.td}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: "50%", background: st.color, boxShadow: b.state === "connected" ? `0 0 6px ${st.color}80` : "none" }} />
+                              <span style={{ color: st.color, fontSize: 12, fontWeight: 600 }}>{st.label}</span>
+                              {!b.identity_ok && <span style={{ color: "#f87171", fontSize: 11 }}>⚠ mismatch</span>}
+                            </span>
+                          </td>
+                          <td style={{ ...S.td, fontFamily: "'Fira Code', monospace", fontSize: 12 }}>{b.phone ? `+${b.phone}` : "—"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

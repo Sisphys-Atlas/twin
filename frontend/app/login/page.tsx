@@ -29,6 +29,8 @@ function LoginForm() {
       const user = await login(username, password);
       if (user.must_change_password) {
         router.replace("/change-password");
+      } else if (user.role === "superadmin") {
+        router.replace("/users"); // platform admin manages clients, not chats
       } else {
         router.replace(next);
       }

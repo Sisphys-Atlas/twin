@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
-import { apiFetch } from "@/lib/auth";
+import { apiFetch, getUser } from "@/lib/auth";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -274,6 +274,10 @@ export default function AgentPage() {
   }, [workspaceId]);
 
   useEffect(() => {
+    // Superadmin is a platform manager, not a chat operator — no bridge/inbox
+    // view for them (it would surface some tenant's connection as "theirs")
+    if (getUser()?.role === "superadmin") { window.location.href = "/users"; return; }
+
     const stored = typeof window !== "undefined" ? localStorage.getItem("workspace_id") : null;
     if (stored) setWorkspaceId(Number(stored));
     else apiFetch("/api/workspace/default").then(r => r.json()).then(d => {

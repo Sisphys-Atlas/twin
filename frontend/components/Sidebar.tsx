@@ -122,8 +122,8 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Workspace switcher */}
-      {workspaces.length > 0 && (
+      {/* Workspace switcher — operators only; superadmin manages the fleet, not a number */}
+      {user?.role !== "superadmin" && workspaces.length > 0 && (
         <div style={{ padding: "10px 12px", borderBottom: "1px solid #1f1f23" }}>
           <div style={{ fontSize: 10, color: "#3f3f46", letterSpacing: "0.08em", marginBottom: 5, textTransform: "uppercase", fontWeight: 500 }}>
             Workspace
@@ -156,7 +156,7 @@ export default function Sidebar() {
 
       {/* Nav links */}
       <nav style={{ flex: 1, padding: "8px", display: "flex", flexDirection: "column", gap: 2 }}>
-        {NAV_LINKS.map(({ href, label, Icon }) => {
+        {(user?.role === "superadmin" ? [] : NAV_LINKS).map(({ href, label, Icon }) => {
           const active = isActive(href);
           return (
             <Link key={href} href={href} style={{
