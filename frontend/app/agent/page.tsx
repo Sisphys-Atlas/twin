@@ -303,7 +303,13 @@ export default function AgentPage() {
   useEffect(() => {
     if (!showQR) return;
     const t = setInterval(pollStatus, 2000);
-    return () => clearInterval(t);
+    // Keep re-kicking the bridge while the modal is open: /connect is a no-op
+    // while a boot is in flight, but restarts the cycle if the bridge gave up
+    // (e.g. Chrome failed to launch under memory pressure)
+    const kick = setInterval(() => {
+      apiFetch("/api/whatsapp/connect", { method: "POST" }).catch(() => {});
+    }, 12000);
+    return () => { clearInterval(t); clearInterval(kick); };
   }, [showQR, pollStatus]);
 
   // While the QR modal is open, poll faster — a freshly auto-started bridge
