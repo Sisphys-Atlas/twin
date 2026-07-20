@@ -628,6 +628,38 @@ client.on('message_create', async msg => {
   console.log(`[bridge] Phone reply to ${conv.name}: "${(msg.body || '').slice(0, 60)}"`);
 });
 
+// ── Chat list cache ────────────────────────────────────────────────────────────
+// getChats is expensive (sequential walk of every chat). The list is cached
+// and served instantly; refreshes happen in the background.
+
+let chatListCache      = null;   // { at: epoch-ms, list: [...] }
+let chatListRefreshing = false;
+const CHAT_LIST_TTL_MS = 2 * 60 * 1000;
+
+function buildChatList(chats) {
+  return chats.map(c => ({
+    phone:         c.id.user,
+    name:          c.name || c.id.user,
+    isGroup:       !!c.isGroup,
+    lastMessage:   c.lastMessage ? c.lastMessage.body : null,
+    lastMessageAt: c.timestamp ? new Date(c.timestamp * 1000).toISOString() : null,
+    unreadCount:   c.unreadCount || 0,
+  })).sort((a, b) => (b.lastMessageAt || '').localeCompare(a.lastMessageAt || ''));
+}
+
+async function refreshChatList() {
+  if (chatListRefreshing || !isConnected) return;
+  chatListRefreshing = true;
+  try {
+    chatListCache = { at: Date.now(), list: buildChatList(await client.getChats()) };
+    console.log(`[bridge] chat list cached (${chatListCache.list.length} chats)`);
+  } catch (e) {
+    console.error('[bridge] chat list refresh failed:', e.message);
+  } finally {
+    chatListRefreshing = false;
+  }
+}
+
 // Re-fetches the last 30 messages of every known conversation — run after
 // (re)connecting so anything sent or received while the bridge was offline
 // shows up instead of the thread staying frozen at the import snapshot.
@@ -638,6 +670,10 @@ async function refreshInboxThreads() {
   let byUser;
   try {
     const chats = await client.getChats();
+    // Same expensive fetch also warms the chat-list cache, so the import
+    // modal's contact picker is instant right after connecting
+    chatListCache = { at: Date.now(), list: buildChatList(chats) };
+    console.log(`[bridge] chat list cached (${chatListCache.list.length} chats)`);
     byUser = new Map(chats.map(c => [c.id.user, c]));
   } catch (e) {
     console.error('[bridge] thread refresh aborted — getChats failed:', e.message);
@@ -852,17 +888,19 @@ app.get('/sync/status', (req, res) => {
 // which contacts to import, without fetching full message history for each.
 app.get('/sync/chats', async (req, res) => {
   if (!isConnected) return res.status(503).json({ error: 'Not connected to WhatsApp' });
+
+  // Serve from cache instantly — getChats walks every chat sequentially and
+  // can take minutes on a small VM, far beyond what a UI request tolerates.
+  // A stale cache triggers a background refresh (stale-while-revalidate).
+  if (chatListCache) {
+    if (Date.now() - chatListCache.at > CHAT_LIST_TTL_MS) refreshChatList();
+    return res.json(chatListCache.list);
+  }
+
   try {
-    const chats = await client.getChats();
-    const list = chats.map(c => ({
-      phone:            c.id.user,
-      name:             c.name || c.id.user,
-      isGroup:          !!c.isGroup,
-      lastMessage:      c.lastMessage ? c.lastMessage.body : null,
-      lastMessageAt:    c.timestamp ? new Date(c.timestamp * 1000).toISOString() : null,
-      unreadCount:      c.unreadCount || 0,
-    })).sort((a, b) => (b.lastMessageAt || '').localeCompare(a.lastMessageAt || ''));
-    res.json(list);
+    await refreshChatList();
+    if (!chatListCache) throw new Error('chat list unavailable');
+    res.json(chatListCache.list);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
