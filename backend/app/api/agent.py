@@ -468,6 +468,20 @@ def _owner_stream(query: str, workspace_id: int | None, db: Session) -> Generato
     search_query = params.get("query", query)
     ws = workspace_id or 1
     chat_ids = resolve_workspace_chat_ids(ws, None, db)
+
+    # Brand-new workspace with nothing imported — answer helpfully instead of
+    # searching an empty (or worse, unscoped) knowledge base
+    if not chat_ids:
+        yield {"type": "search_done", "count": 0}
+        yield {"type": "chunk", "text": (
+            "Your knowledge base is empty for now. Connect your WhatsApp "
+            "(top bar) and run “Import history” to bring in your conversations — "
+            "then I can answer questions about your customers, search past chats, "
+            "and draft replies in your style."
+        )}
+        yield {"type": "done"}
+        return
+
     recency = _is_recency_query(query)
 
     # Detect a contact name in the query and restrict to that contact's chats

@@ -22,6 +22,12 @@ def hybrid_search(
     chat_ids: list[int] | None = None,
     top_k: int = 15,
 ) -> list[dict]:
+    # None = caller wants no chat filter; an EMPTY list means "this workspace
+    # has no chats" and must return nothing — falling through unfiltered would
+    # search every tenant's messages (cross-tenant leak).
+    if chat_ids is not None and len(chat_ids) == 0:
+        return []
+
     base_q = (
         db.query(Message)
         .options(joinedload(Message.chat))
