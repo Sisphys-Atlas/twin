@@ -1,4 +1,5 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const { execSync }          = require('child_process');
 const qrcodeTerminal = require('qrcode-terminal');
 const QRCode         = require('qrcode');
 const express        = require('express');
@@ -968,14 +969,33 @@ app.post('/send', async (req, res) => {
 });
 
 // Starts the WhatsApp client once — safe to call repeatedly.
+// We own this profile exclusively — one bridge per workspace — so any Chrome
+// still holding it is an orphan from a killed bridge (kill -9 on node doesn't
+// cascade to child Chrome). Execute it and clear the profile lock files, or
+// every launch fails with "The browser is already running".
+function clearStaleBrowserLock() {
+  const sessionDir = path.join(__dirname, '.wwebjs_auth', `session-${CLIENT_ID}`);
+  if (!fs.existsSync(sessionDir)) return;
+  try {
+    if (process.platform !== 'win32') {
+      execSync(`pkill -9 -f -- "${sessionDir}"`, { stdio: 'ignore' });
+    }
+  } catch {} // pkill exits non-zero when nothing matched — fine
+  for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+    try { fs.rmSync(path.join(sessionDir, f), { force: true }); } catch {}
+  }
+}
+
 function startClient() {
   if (initStarted) return;
   initStarted = true;
   initError   = null;
+  clearStaleBrowserLock();
   client.initialize().catch(async e => {
     console.error('[bridge] Init error (will retry in 5s):', e.message);
     initError = e.message;
     try { await client.destroy(); } catch {}
+    clearStaleBrowserLock();
     setTimeout(() => client.initialize().catch(err => { initStarted = false; initError = err.message; }), 5000);
   });
 }
