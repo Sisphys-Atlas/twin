@@ -263,6 +263,21 @@ def delete_tenant(
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(404, "Tenant not found")
+
+    # Kill bridges + WhatsApp sessions and hard-delete chat data for every
+    # workspace of this tenant — the DB cascade removes users/workspaces but
+    # would only orphan chats (workspace_id SET NULL) and leave the client's
+    # WhatsApp logged in on this machine.
+    from app.api.whatsapp import teardown_workspace_bridge
+    from app.kb.models import Chat
+
+    workspaces = db.query(Workspace).filter(Workspace.tenant_id == tenant_id).all()
+    for ws in workspaces:
+        teardown_workspace_bridge(ws)
+    ws_ids = [w.id for w in workspaces]
+    if ws_ids:
+        db.query(Chat).filter(Chat.workspace_id.in_(ws_ids)).delete(synchronize_session=False)
+
     db.add(AuditLog(user_id=sa.id, action="delete_tenant", detail=f"Deleted tenant '{tenant.name}'"))
     db.delete(tenant)
     db.commit()

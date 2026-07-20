@@ -205,6 +205,13 @@ def delete_workspace(
     sibling_count = db.query(Workspace).filter(Workspace.tenant_id == ws.tenant_id).count()
     if sibling_count <= 1:
         raise HTTPException(400, "Cannot delete the last workspace")
+
+    # Kill the bridge + WhatsApp session and hard-delete this number's chats
+    # (the FK would only orphan them with workspace_id = NULL)
+    from app.api.whatsapp import teardown_workspace_bridge
+    teardown_workspace_bridge(ws)
+    db.query(Chat).filter(Chat.workspace_id == ws.id).delete(synchronize_session=False)
+
     db.delete(ws)
     db.commit()
 

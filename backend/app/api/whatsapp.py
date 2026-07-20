@@ -110,6 +110,45 @@ def ensure_bridge_running(ws: Workspace | None) -> None:
         print(f"[whatsapp] failed to auto-start bridge for workspace {ws.id}: {e}")
 
 
+def teardown_workspace_bridge(ws: Workspace) -> None:
+    """Kill the bridge process for this workspace's port and destroy its
+    WhatsApp session files. Called when a workspace or tenant is deleted —
+    a removed client's WhatsApp must not stay logged in on our machine."""
+    import shutil
+
+    # 1. Kill the process this backend spawned (if any)
+    proc = _bridge_processes.pop(ws.id, None)
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+    # 2. Best-effort: kill anything else still listening on the port —
+    #    bridges spawned before the last backend restart aren't tracked
+    try:
+        if os.name == "nt":
+            r = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=10)
+            for line in r.stdout.splitlines():
+                if f":{ws.bridge_port}" in line and "LISTENING" in line:
+                    subprocess.run(["taskkill", "/PID", line.split()[-1], "/F"], capture_output=True, timeout=10)
+        else:
+            subprocess.run(["fuser", "-k", f"{ws.bridge_port}/tcp"], capture_output=True, timeout=10)
+    except Exception as e:
+        print(f"[whatsapp] port kill failed for {ws.bridge_port}: {e}")
+
+    # 3. Delete the WhatsApp session folder — the client's login credentials
+    bridge_dir = _resolve_bridge_dir()
+    if bridge_dir is not None:
+        session_dir = bridge_dir / ".wwebjs_auth" / f"session-port-{ws.bridge_port}"
+        if session_dir.exists():
+            try:
+                shutil.rmtree(session_dir)
+                print(f"[whatsapp] deleted WhatsApp session for port {ws.bridge_port}")
+            except Exception as e:
+                print(f"[whatsapp] session delete failed for port {ws.bridge_port}: {e}")
+
+
 # ── Bridge proxy helpers ────────────────────────────────────────────────────────
 
 async def _bridge_get(path: str, bridge_url: str = f"http://localhost:{_DEFAULT_BRIDGE_PORT}", timeout: float = 4):
