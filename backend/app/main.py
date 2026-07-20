@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv()  # must run before app imports — security.py reads JWT_SECRET/ENVIRONMENT from os.environ at import time
+
 import asyncio
 import os
 from contextlib import asynccontextmanager
