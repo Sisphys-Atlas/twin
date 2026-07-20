@@ -339,6 +339,27 @@ def _fetch_last_conversation(contact_chat_ids: list[int], db) -> list[dict]:
     return [_msg_to_result(m) for m in result]
 
 
+def _fetch_recent_window(contact_chat_ids: list[int], db, limit: int = 20) -> list[dict]:
+    """Tier 2 short-term memory: the contact's last N raw messages straight
+    from the live store, chronological. Always current — no embedding lag."""
+    from sqlalchemy.orm import joinedload
+    from app.kb.models import Message as MsgModel
+
+    rows = (
+        db.query(MsgModel)
+        .options(joinedload(MsgModel.chat))
+        .filter(
+            MsgModel.chat_id.in_(contact_chat_ids),
+            MsgModel.body.isnot(None),
+            MsgModel.sender.isnot(None),
+        )
+        .order_by(MsgModel.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_msg_to_result(m) for m in reversed(rows)]
+
+
 def _fmt_conversation(messages: list[dict]) -> str:
     """Format a full conversation thread for the Gemini prompt."""
     if not messages:
@@ -479,8 +500,21 @@ def _owner_stream(query: str, workspace_id: int | None, db: Session) -> Generato
 
         context = _fmt_context(results)
         recency_instruction = "\nIMPORTANT: The user is asking about RECENT or LAST interactions. Focus on the most recent messages — pay attention to the timestamps and highlight the latest exchange.\n" if recency else ""
+
+        # Known contact → always include their live recent window alongside the
+        # search hits, so answers reflect the conversation as of right now.
+        recent_block = ""
+        if contact_chat_ids:
+            recent = _fetch_recent_window(contact_chat_ids, db)
+            if recent:
+                recent_block = (
+                    f"--- Most recent messages with this contact (live, chronological) ---\n"
+                    f"{_fmt_conversation(recent)}\n--- End recent messages ---\n\n"
+                )
+
         prompt = (
             f"{_KB_SYSTEM}{recency_instruction}\n\n"
+            f"{recent_block}"
             f"--- Conversation excerpts ---\n{context}\n--- End ---\n\n"
             f"Question: {query}\n\nAnswer:"
         )

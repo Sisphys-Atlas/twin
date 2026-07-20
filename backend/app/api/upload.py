@@ -70,6 +70,7 @@ def _process_chat(
                 burst_id=msg.burst_id,
                 position_in_chat=msg.position,
                 language=_detect_lang(msg.body) if msg.sender else None,
+                wa_message_id=msg.wa_message_id,
             ))
 
         chat.message_count = sum(1 for m in result.messages if m.sender)
@@ -164,6 +165,8 @@ class StructuredMessageIn(BaseModel):
     sender: str | None = None
     body: str = ""
     message_type: str = "text"
+    media_filename: str | None = None
+    wa_message_id: str | None = None
 
 
 class ImportMessagesRequest(BaseModel):

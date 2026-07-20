@@ -133,6 +133,7 @@ class Message(Base):
     body:               Mapped[Optional[str]]  = mapped_column(Text)
     message_type:       Mapped[str]            = mapped_column(String(50), default="text")
     media_filename:     Mapped[Optional[str]]  = mapped_column(String(255))
+    wa_message_id:      Mapped[Optional[str]]  = mapped_column(String(100), index=True)  # WhatsApp's own id — dedup key for live/backfill ingestion
     media_path:         Mapped[Optional[str]]  = mapped_column(String(500))
     transcription:      Mapped[Optional[str]]  = mapped_column(Text)
     vision_description: Mapped[Optional[str]]  = mapped_column(Text)

@@ -112,10 +112,10 @@ def ensure_bridge_running(ws: Workspace | None) -> None:
 
 # ── Bridge proxy helpers ────────────────────────────────────────────────────────
 
-async def _bridge_get(path: str, bridge_url: str = f"http://localhost:{_DEFAULT_BRIDGE_PORT}"):
+async def _bridge_get(path: str, bridge_url: str = f"http://localhost:{_DEFAULT_BRIDGE_PORT}", timeout: float = 4):
     async with httpx.AsyncClient() as c:
         try:
-            r = await c.get(f"{bridge_url}/{path}", timeout=4)
+            r = await c.get(f"{bridge_url}/{path}", timeout=timeout)
             return r.json()
         except Exception:
             return None
@@ -142,6 +142,21 @@ async def whatsapp_status(
     if data is None:
         ensure_bridge_running(ws)
         return {"connected": False, "qr": None, "error": "Starting bridge for this number…"}
+    return data
+
+
+@router.post("/whatsapp/connect")
+async def whatsapp_connect(
+    _: User = Depends(get_current_user),
+    bridge_url: str = Depends(get_bridge_url),
+    ws: Workspace | None = Depends(get_workspace),
+):
+    """Tell the bridge to start the WhatsApp client (generates the QR).
+    The bridge stays idle until this is called for a never-linked number."""
+    data = await _bridge_post("connect", {}, bridge_url)
+    if not data or data.get("error"):
+        ensure_bridge_running(ws)
+        return {"ok": False, "error": "Starting bridge for this number…"}
     return data
 
 
@@ -221,16 +236,71 @@ def whatsapp_inbound(
     return {"ok": True}
 
 
-def _index_live_message(db, phone: str, name: str, body: str, timestamp_unix: int, workspace_id: int = 1):
-    """Find or create a Chat for this contact and insert the message with embedding."""
-    from app.kb.models import Chat, Message
-    from app.kb.embeddings import embed_texts
+# ── Live message persistence (Tier 1) — every message lands in the KB ──────────
+
+class LiveMessageIn(BaseModel):
+    direction: str = "in"          # "in" = customer, "out" = owner/agent
+    body: str = ""
+    message_type: str = "text"
+    timestamp: int
+    media_filename: str | None = None
+    wa_message_id: str | None = None
+
+
+class PersistMessagesRequest(BaseModel):
+    phone: str
+    name: str
+    bridge_port: int = 3001
+    messages: list[LiveMessageIn] = []
+
+
+@router.post("/whatsapp/messages")
+def whatsapp_persist_messages(
+    req: PersistMessagesRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_bridge_secret),
+):
+    """Called by the bridge for every live message (inbound AND outbound,
+    including replies typed on the phone) and for reconnect backfill. The
+    database is the source of truth — the bridge's memory is just a cache.
+    Idempotent via wa_message_id, so re-sending the same messages is safe."""
+    if not req.messages:
+        return {"ok": True, "inserted": 0}
+
+    ws = db.query(Workspace).filter(Workspace.bridge_port == req.bridge_port).first()
+    workspace_id = ws.id if ws else 1
+
+    chat = _get_or_create_live_chat(db, req.phone, req.name, workspace_id)
+    inserted = 0
+    for m in req.messages:
+        try:
+            if _insert_live_message(
+                db, chat, req.name, m.body, m.timestamp,
+                direction=m.direction, message_type=m.message_type,
+                media_filename=m.media_filename, wa_message_id=m.wa_message_id,
+            ):
+                inserted += 1
+        except Exception as e:
+            db.rollback()
+            print(f"[whatsapp] persist failed for {req.phone}: {e}")
+
+    if inserted:
+        try:
+            from app.kb.contacts import extract_contacts
+            extract_contacts(chat.id, workspace_id, db)
+        except Exception as e:
+            print(f"[whatsapp] contact extraction failed for chat {chat.id}: {e}")
+
+    return {"ok": True, "inserted": inserted, "chat_id": chat.id}
+
+
+def _get_or_create_live_chat(db, phone: str, name: str, workspace_id: int):
+    """Find the Chat row for this contact — by phone first (stable), falling
+    back to name for chats that predate phone tracking — creating it if new."""
+    from app.kb.models import Chat
 
     safe_name = re.sub(r'[<>:"/\\|?*]', '_', name)
-    ts = datetime.fromtimestamp(timestamp_unix, tz=timezone.utc)
 
-    # Try to find existing chat for this contact — match by phone first
-    # (stable), falling back to name for chats that predate phone tracking.
     chat = (
         db.query(Chat)
         .filter(Chat.workspace_id == workspace_id, Chat.phone == phone)
@@ -262,35 +332,80 @@ def _index_live_message(db, phone: str, name: str, body: str, timestamp_unix: in
     elif not chat.phone:
         chat.phone = phone  # backfill for chats created before phone tracking
 
-    # Skip if already indexed (re-sync guard)
-    exists = (
-        db.query(Message)
-        .filter(Message.chat_id == chat.id, Message.timestamp == ts, Message.sender == name)
-        .first()
-    )
-    if exists:
-        return
+    return chat
+
+
+def _insert_live_message(
+    db, chat, name: str, body: str, timestamp_unix: int,
+    direction: str = "in", message_type: str = "text",
+    media_filename: str | None = None, wa_message_id: str | None = None,
+) -> bool:
+    """Insert one live message into the KB, idempotently. Returns True if a
+    row was actually inserted (False = duplicate, skipped)."""
+    from app.kb.models import Message
+    from app.kb.embeddings import embed_texts
+
+    ts     = datetime.fromtimestamp(timestamp_unix, tz=timezone.utc)
+    sender = "Me" if direction == "out" else name
+
+    # Dedup — WhatsApp's message id is the strongest key (backfill re-sends
+    # the same recent messages on every reconnect); fall back to
+    # (timestamp, sender, body) for rows that predate wa_message_id.
+    exists = None
+    if wa_message_id:
+        exists = (
+            db.query(Message)
+            .filter(Message.chat_id == chat.id, Message.wa_message_id == wa_message_id)
+            .first()
+        )
+    if exists is None:
+        exists = (
+            db.query(Message)
+            .filter(
+                Message.chat_id == chat.id,
+                Message.timestamp == ts,
+                Message.sender == sender,
+                Message.body == body,
+            )
+            .first()
+        )
+    if exists is not None:
+        if wa_message_id and not exists.wa_message_id:
+            exists.wa_message_id = wa_message_id  # heal old rows so wa-id dedup works next time
+            db.commit()
+        return False
 
     try:
-        embedding = embed_texts([body])[0] if body and body.strip() else None
+        embedding = embed_texts([body])[0] if body and body.strip() and message_type == "text" else None
     except Exception:
         embedding = None
 
     db.add(Message(
         chat_id=chat.id,
         timestamp=ts,
-        sender=name,
+        sender=sender,
         body=body,
-        message_type="text",
+        message_type=message_type,
+        media_filename=media_filename,
+        wa_message_id=wa_message_id,
         embedding=embedding,
     ))
 
     chat.message_count = (chat.message_count or 0) + 1
-    chat.date_to = ts
+    if chat.date_to is None or ts > chat.date_to:
+        chat.date_to = ts
     if chat.date_from is None:
         chat.date_from = ts
 
     db.commit()
+    return True
+
+
+def _index_live_message(db, phone: str, name: str, body: str, timestamp_unix: int, workspace_id: int = 1):
+    """Find or create a Chat for this contact and insert the message with embedding."""
+    chat = _get_or_create_live_chat(db, phone, name, workspace_id)
+    if not _insert_live_message(db, chat, name, body, timestamp_unix):
+        return
 
     try:
         from app.kb.contacts import extract_contacts
@@ -527,7 +642,9 @@ async def whatsapp_sync_chats(
 ):
     """List available WhatsApp chats (lightweight, no message history) so the
     owner can pick which contacts to import before starting a sync."""
-    data = await _bridge_get("sync/chats", bridge_url)
+    # Chat listing walks every chat sequentially in the bridge — can take
+    # well over the default 4s with a real account, so give it room.
+    data = await _bridge_get("sync/chats", bridge_url, timeout=60)
     if data is None:
         raise HTTPException(503, "Bridge not running")
     if isinstance(data, dict) and "error" in data:

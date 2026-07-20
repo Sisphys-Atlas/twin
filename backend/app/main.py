@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
         conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS phone VARCHAR(50)"))
         conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS phone VARCHAR(50)"))
+        conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_message_id VARCHAR(100)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_wa_message_id ON messages (wa_message_id)"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE"))
         conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE"))
@@ -71,7 +74,27 @@ async def lifespan(app: FastAPI):
             print("[auth] Default owner created: admin / twin2026 — change this password!")
     finally:
         db.close()
+
+    # Tier 2 — background burst summarizer: distills quiet live conversations
+    # into summarized, embedded threads (long-term memory)
+    async def _burst_loop():
+        from app.kb.burst_summarizer import run_burst_summarizer
+        while True:
+            await asyncio.sleep(300)  # every 5 minutes
+            try:
+                n = await asyncio.to_thread(run_burst_summarizer)
+                if n:
+                    print(f"[memory] burst summarizer created {n} thread(s)")
+            except Exception as e:
+                print(f"[memory] burst summarizer error: {e}")
+
+    from app.config import settings as _settings
+    burst_task = asyncio.create_task(_burst_loop()) if _settings.gemini_api_key else None
+
     yield
+
+    if burst_task:
+        burst_task.cancel()
 
 
 app = FastAPI(title="Twin", version="0.5.0", lifespan=lifespan)

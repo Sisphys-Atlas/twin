@@ -53,6 +53,7 @@ async function downloadMedia(msg) {
 let qrDataUrl    = null;
 let isConnected  = false;
 let phoneInfo    = null;
+let initStarted  = false; // true once client.initialize() has been called
 let dailySent    = 0;
 let lastSendAt   = 0;
 let resetDate    = new Date().toDateString();
@@ -268,7 +269,38 @@ async function toStructuredEntry(msg, chatName) {
     mediaFilename = await downloadMedia(msg);
   }
 
-  return { timestamp: msg.timestamp, sender, body, message_type: type, media_filename: mediaFilename };
+  return {
+    timestamp: msg.timestamp, sender, body, message_type: type,
+    media_filename: mediaFilename,
+    wa_message_id: (msg.id && msg.id.id) || null,
+  };
+}
+
+// ── Live persistence (Tier 1) — every message goes to the KB immediately ──────
+
+function entryToWire(entry) {
+  return {
+    direction:      entry.sender === 'Me' ? 'out' : 'in',
+    body:           entry.body,
+    message_type:   entry.message_type,
+    timestamp:      entry.timestamp,
+    media_filename: entry.media_filename || null,
+    wa_message_id:  entry.wa_message_id || null,
+  };
+}
+
+// Fire-and-forget — persistence must never block or crash message handling.
+async function persistMessages(phone, name, entries) {
+  if (!entries || entries.length === 0) return;
+  try {
+    await fetch(`${BACKEND_URL}/api/whatsapp/messages`, {
+      method:  'POST',
+      headers: _bridgeHeaders,
+      body:    JSON.stringify({ phone, name, bridge_port: Number(PORT), messages: entries.map(entryToWire) }),
+    });
+  } catch (e) {
+    console.error(`[bridge] persist failed for ${phone}:`, e.message);
+  }
 }
 
 // ── Sync job — uploads chat history to the KB ──────────────────────────────
@@ -462,6 +494,9 @@ async function sendMessage(phone, message) {
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth', clientId: `port-${PORT}` }),
   puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
+  restartOnAuthFail: true,
+  takeoverOnConflict: true,
+  takeoverTimeoutMs: 10000,
 });
 
 client.on('qr', async qr => {
@@ -482,13 +517,17 @@ client.on('ready', async () => {
   phoneInfo   = { number: info.wid.user, name: info.pushname, platform: info.platform };
   console.log(`[bridge] Ready — ${phoneInfo.name} (${phoneInfo.number})`);
   await notifyBackend('connected', phoneInfo);
+  refreshInboxThreads().catch(e => console.error('[bridge] thread refresh failed:', e.message));
 });
 
 client.on('disconnected', async reason => {
   isConnected = false;
   phoneInfo   = null;
+  qrDataUrl   = null;
+  initStarted = false; // allow a fresh /connect to re-initialize
   console.log('[bridge] Disconnected:', reason);
   await notifyBackend('disconnected', { reason });
+  try { await client.destroy(); } catch {}
 });
 
 client.on('message', async msg => {
@@ -520,6 +559,9 @@ client.on('message', async msg => {
 
   console.log(`[bridge] Inbound from ${name} (${phone}): "${msg.body.slice(0, 60)}"`);
 
+  // Tier 1 — persist to the KB immediately, regardless of twin on/off
+  toStructuredEntry(msg, name).then(e => e && persistMessages(phone, name, [e])).catch(() => {});
+
   // Skip twin draft generation if twin is disabled for this contact
   if (!conv.twinEnabled) {
     console.log(`[bridge] Twin disabled for ${name} — skipping draft`);
@@ -536,6 +578,84 @@ client.on('message', async msg => {
   });
 });
 
+// Outgoing messages typed on the phone itself — the 'message' event only fires
+// for incoming, so without this the owner's own phone replies never show in
+// the inbox thread. App-initiated sends are pushed by the send endpoints
+// directly, hence the duplicate check.
+client.on('message_create', async msg => {
+  if (!msg.fromMe) return; // incoming handled by the 'message' listener
+  if (!msg.to || msg.to === 'status@broadcast' || msg.to.endsWith('@g.us')) return;
+
+  const phone = msg.to.replace(/@.*$/, '');
+  const conv  = conversations.get(phone);
+  if (!conv) return; // only track imported contacts
+
+  // Tier 1 — persist every outbound exactly once here (app sends fire this
+  // event too; the backend dedups by WhatsApp message id)
+  toStructuredEntry(msg, conv.name).then(e => e && persistMessages(phone, conv.name, [e])).catch(() => {});
+
+  // Skip the in-memory push if this exact text was just pushed by an app send endpoint
+  const recent = conv.messages.slice(-3);
+  if (recent.some(m => m.role === 'agent' && m.content === msg.body)) return;
+
+  conv.messages.push({ role: 'agent', content: msg.body, timestamp: new Date(msg.timestamp * 1000).toISOString() });
+  conv.draftReply = null;
+  conv.status     = 'active';
+  conv.updatedAt  = new Date().toISOString();
+  console.log(`[bridge] Phone reply to ${conv.name}: "${(msg.body || '').slice(0, 60)}"`);
+});
+
+// Re-fetches the last 30 messages of every known conversation — run after
+// (re)connecting so anything sent or received while the bridge was offline
+// shows up instead of the thread staying frozen at the import snapshot.
+async function refreshInboxThreads() {
+  // Look chats up from the live list instead of getChatById — the chatId we
+  // hold after a restart is a guess (`phone@c.us`) and fails for contacts on
+  // WhatsApp's new @lid addressing. Matching by id.user sidesteps the suffix.
+  let byUser;
+  try {
+    const chats = await client.getChats();
+    byUser = new Map(chats.map(c => [c.id.user, c]));
+  } catch (e) {
+    console.error('[bridge] thread refresh aborted — getChats failed:', e.message);
+    return;
+  }
+
+  for (const conv of conversations.values()) {
+    try {
+      const chat = byUser.get(conv.id);
+      if (!chat) continue; // no matching live chat (e.g. cleared history)
+      conv.chatId = chat.id._serialized; // heal the guessed chatId for future sends
+      const raw  = await chat.fetchMessages({ limit: 30 });
+      const entries = [];
+      const msgs = [];
+      for (const m of raw) {
+        const e = await toStructuredEntry(m, conv.name);
+        if (!e) continue;
+        entries.push(e);
+        msgs.push({
+          role:      e.sender === 'Me' ? 'agent' : 'customer',
+          content:   e.body,
+          timestamp: new Date(e.timestamp * 1000).toISOString(),
+          mediaType: e.message_type !== 'text' ? e.message_type : null,
+          mediaUrl:  e.media_filename ? `/api/media/${e.media_filename}` : null,
+        });
+      }
+      if (msgs.length) {
+        conv.messages  = msgs;
+        conv.updatedAt = msgs[msgs.length - 1].timestamp;
+      }
+      // Tier 1 — backfill anything sent/received while the bridge was offline
+      // into the KB (idempotent server-side, so overlap with past syncs is fine)
+      await persistMessages(conv.id, conv.name, entries);
+      await sleep(300); // don't hammer WhatsApp Web between chats
+    } catch (e) {
+      console.error(`[bridge] thread refresh failed for ${conv.name}:`, e.message);
+    }
+  }
+  console.log(`[bridge] inbox threads refreshed (${conversations.size} chats)`);
+}
+
 // ── Express API ────────────────────────────────────────────────────────────────
 
 const app = express();
@@ -548,12 +668,21 @@ app.get('/status', (req, res) => {
   res.json({
     connected:    isConnected,
     qr:           qrDataUrl,
+    waiting:      !initStarted, // idle — no QR until POST /connect
     phone:        phoneInfo,
     daily_sent:   dailySent,
     daily_limit:  DAILY_LIMIT,
     warn_at:      WARN_AT,
     seen_senders: seenSenders.size,
   });
+});
+
+// Start the WhatsApp client on demand — called when the user clicks
+// "Connect WhatsApp" in the UI. Idempotent.
+app.post('/connect', (req, res) => {
+  if (isConnected) return res.json({ ok: true, connected: true });
+  startClient();
+  res.json({ ok: true, connected: false });
 });
 
 // Conversation list — polled by frontend inbox
@@ -742,7 +871,7 @@ app.post('/sync/start', async (req, res) => {
   if (!isConnected)      return res.status(503).json({ error: 'Not connected to WhatsApp' });
   const category = req.body.category || 'customer';
   const phones   = Array.isArray(req.body.phones) ? req.body.phones : null;
-  runSync(category, phones).catch(e => { syncState.running = false; syncLog(`Fatal: ${e.message}`); });
+  runSync(category, phones).catch(e => { syncState.running = false; syncLog(`Fatal: ${e?.message || String(e)}`); console.error('[sync] Fatal error:', e); });
   res.json({ ok: true, message: 'Sync started' });
 });
 
@@ -770,9 +899,30 @@ app.post('/send', async (req, res) => {
   }
 });
 
+// Starts the WhatsApp client once — safe to call repeatedly.
+function startClient() {
+  if (initStarted) return;
+  initStarted = true;
+  client.initialize().catch(async e => {
+    console.error('[bridge] Init error (will retry in 5s):', e.message);
+    try { await client.destroy(); } catch {}
+    setTimeout(() => client.initialize().catch(() => { initStarted = false; }), 5000);
+  });
+}
+
 app.listen(PORT, async () => {
   console.log(`[bridge] HTTP server on port ${PORT}`);
   const workspaceId = await getWorkspaceId();
   await rehydrateInbox(workspaceId);
-  client.initialize();
+
+  // Only auto-start if this number was linked before (session on disk) —
+  // otherwise starting the client just spins an endless QR refresh loop.
+  // A fresh number waits for POST /connect from the UI.
+  const sessionDir = path.join(__dirname, '.wwebjs_auth', `session-port-${PORT}`);
+  if (fs.existsSync(sessionDir)) {
+    console.log('[bridge] Existing session found — reconnecting…');
+    startClient();
+  } else {
+    console.log('[bridge] No saved session — waiting for a connect request before generating QR');
+  }
 });

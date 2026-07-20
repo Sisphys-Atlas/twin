@@ -90,11 +90,29 @@ def list_workspaces(
 
 @router.get("/workspace/default")
 def get_or_create_default(
+    request: Request,
     db: Session = Depends(get_db),
-    _:  None    = Depends(_bridge_or_user),
 ):
-    """Return the first (default) workspace, creating it if it doesn't exist."""
-    ws = db.query(Workspace).first()
+    """Return the caller's default workspace, creating it if it doesn't exist.
+    For a logged-in user this is the first workspace of THEIR tenant — not the
+    first workspace in the database, which belongs to whichever tenant was
+    created first. The bridge (X-Bridge-Secret) has no tenant; it gets the
+    global first workspace as before."""
+    secret = request.headers.get("X-Bridge-Secret", "")
+    if secret == BRIDGE_SECRET:
+        ws = db.query(Workspace).order_by(Workspace.id).first()
+    else:
+        user = get_current_user(request, db)
+        q = db.query(Workspace)
+        if user.role != "superadmin":
+            q = q.filter(Workspace.tenant_id == user.tenant_id)
+        ws = q.order_by(Workspace.id).first()
+        if not ws:
+            max_port = db.query(Workspace).order_by(Workspace.bridge_port.desc()).first()
+            ws = Workspace(name="My Workspace", bridge_port=(max_port.bridge_port + 1) if max_port else 3001, tenant_id=user.tenant_id)
+            db.add(ws)
+            db.commit()
+            db.refresh(ws)
     if not ws:
         ws = Workspace(name="My Workspace", bridge_port=3001)
         db.add(ws)

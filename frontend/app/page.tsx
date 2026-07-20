@@ -514,7 +514,7 @@ export default function AgentPage() {
           )}
 
           {!bridgeStatus?.connected && (
-            <button onClick={() => setShowQR(true)} style={{ fontSize: 12, color: "#22c55e", background: "none", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
+            <button onClick={() => { apiFetch("/api/whatsapp/connect", { method: "POST" }).catch(() => {}); setShowQR(true); }} style={{ fontSize: 12, color: "#22c55e", background: "none", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
               Connect WhatsApp
             </button>
           )}

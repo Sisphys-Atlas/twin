@@ -92,6 +92,7 @@ class ParsedMessage:
     media_filename: Optional[str] = None
     burst_id: Optional[int] = None
     position: int = 0
+    wa_message_id: Optional[str] = None  # only present for bridge-imported messages
 
 
 @dataclass
@@ -350,6 +351,7 @@ def from_structured(messages: list[dict]) -> ParseResult:
             message_type=msg_type,
             media_filename=m.get("media_filename"),
             position=pos,
+            wa_message_id=m.get("wa_message_id"),
         ))
         if sender:
             participants.add(sender)
